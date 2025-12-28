@@ -1,0 +1,11 @@
+{
+    "cSpell.words": [
+        "dotenv",
+        "garminconnect",
+        "mywhoosh",
+        "MYWHOOSH",
+        "pystray"
+    ],
+    "python.defaultInterpreterPath": ".venv\\Scripts\\python.exe"
+}
+  
