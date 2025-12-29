@@ -2,6 +2,13 @@
 # GUI application for Garmin Connect automatic uploader
 # Line length limit relaxed for readability in GUI code
 
+# Fix DPI scaling issues on Windows (must be before tkinter import)
+import ctypes
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+except Exception:
+    ctypes.windll.user32.SetProcessDPIAware()
+
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, scrolledtext
 import json
@@ -122,7 +129,8 @@ class ConnectUploaderGUI:
     def __init__(self, root):
         self.root = root
         self.root.title(f"Garmin Connect Uploader v{VERSION}")
-        self.root.geometry("650x850")
+        self.root.geometry("600x825")
+        self.root.minsize(600, 825)  # Set minimum size to prevent cutoff
         self.root.resizable(True, True)  # Allow resizing
         
         # Set modern styling
@@ -253,53 +261,75 @@ class ConnectUploaderGUI:
         ttk.Label(main_frame, text="📁 Folder Settings", style='Header.TLabel').grid(row=4, column=0, columnspan=3, sticky=tk.W, pady=(20, 5))
         
         # Wahoo Folder
-        ttk.Label(main_frame, text="Wahoo Folder (via Dropbox):").grid(row=5, column=0, sticky=tk.W, pady=5)
-        self.wahoo_folder = ttk.Entry(main_frame, width=35)
-        self.wahoo_folder.grid(row=5, column=1, sticky=(tk.W, tk.E), pady=5, padx=5)
-        ttk.Button(main_frame, text="Browse", command=lambda: self.browse_folder(self.wahoo_folder)).grid(row=5, column=2, pady=5)
+        ttk.Label(main_frame, text="Wahoo Folder (Dropbox):").grid(row=5, column=0, columnspan=3, sticky=tk.W, pady=(5, 2))
+        wahoo_row = ttk.Frame(main_frame)
+        wahoo_row.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 2))
+        self.wahoo_folder = ttk.Entry(wahoo_row, width=50)
+        self.wahoo_folder.pack(side='left', fill='x', expand=True, padx=(0, 5))
+        ttk.Button(wahoo_row, text="Browse", command=lambda: self.browse_folder(self.wahoo_folder), width=8).pack(side='left', padx=(0, 3))
+        ttk.Button(wahoo_row, text="?", command=self.show_wahoo_help, width=3).pack(side='left')
         
-        # Wahoo help button
-        ttk.Button(main_frame, text="📖 How to Setup Wahoo with Dropbox", command=self.show_wahoo_help).grid(row=6, column=1, columnspan=2, sticky=tk.W, pady=(0,5), padx=5)
-        
-        ttk.Label(main_frame, text="Example: C:\\Users\\YourName\\Dropbox\\Apps\\WahooFitness", font=('Arial', 8), foreground='gray').grid(row=7, column=1, columnspan=2, sticky=tk.W, padx=5)
+        ttk.Label(main_frame, text="Example: C:\\Users\\YourName\\Dropbox\\Apps\\WahooFitness", font=('Arial', 8), foreground='gray').grid(row=7, column=0, columnspan=3, sticky=tk.W)
         
         # MyWhoosh Folder
-        ttk.Label(main_frame, text="MyWhoosh Folder:").grid(row=8, column=0, sticky=tk.W, pady=5)
-        self.mywhoosh_folder = ttk.Entry(main_frame, width=35)
-        self.mywhoosh_folder.grid(row=8, column=1, sticky=(tk.W, tk.E), pady=5, padx=5)
-        ttk.Button(main_frame, text="Browse", command=lambda: self.browse_folder(self.mywhoosh_folder)).grid(row=8, column=2, pady=5)
+        ttk.Label(main_frame, text="MyWhoosh Folder:").grid(row=8, column=0, columnspan=3, sticky=tk.W, pady=(10, 2))
+        mywhoosh_row = ttk.Frame(main_frame)
+        mywhoosh_row.grid(row=9, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 2))
+        self.mywhoosh_folder = ttk.Entry(mywhoosh_row, width=50)
+        self.mywhoosh_folder.pack(side='left', fill='x', expand=True, padx=(0, 5))
+        ttk.Button(mywhoosh_row, text="Browse", command=lambda: self.browse_folder(self.mywhoosh_folder), width=8).pack(side='left', padx=(0, 3))
+        ttk.Button(mywhoosh_row, text="?", command=self.show_mywhoosh_help, width=3).pack(side='left')
         
-        # MyWhoosh warning with inline link
+        ttk.Label(main_frame, text="Example: C:\\Users\\YourName\\AppData\\Local\\...\\MyWhoosh\\Content\\Data", font=('Arial', 8), foreground='gray').grid(row=10, column=0, columnspan=3, sticky=tk.W)
+        
+        # MyWhoosh warning
         warning_frame = ttk.Frame(main_frame)
-        warning_frame.grid(row=9, column=0, columnspan=3, sticky=tk.W, pady=(5, 5))
+        warning_frame.grid(row=11, column=0, columnspan=3, sticky=tk.W, pady=(10, 0))
         
-        ttk.Label(warning_frame, text="⚠️ MyWhoosh only keeps the latest activity. Multiple rides while app closed = only last syncs!", font=('Arial', 9, 'bold'), foreground='#ff6600', wraplength=450).pack(side='left')
-        readme_link = ttk.Label(warning_frame, text="Read more", foreground='blue', cursor='hand2', font=('Arial', 9, 'bold', 'underline'))
-        readme_link.pack(side='left', padx=(5, 0))
+        # Warning icon (spans 2 rows)
+        icon_label = ttk.Label(warning_frame, text="⚠️", font=('Arial', 20), foreground='#ff6600')
+        icon_label.grid(row=0, column=0, rowspan=2, sticky='n', padx=(0, 10))
+        
+        # First line of warning text
+        ttk.Label(
+            warning_frame,
+            text="MyWhoosh only keeps the latest activity in the cache folder.",
+            font=('Arial', 9),
+            foreground='#ff6600'
+        ).grid(row=0, column=1, sticky='w')
+        
+        # Second line of warning text
+        ttk.Label(
+            warning_frame,
+            text="Multiple rides while app is closed = only the last one syncs!",
+            font=('Arial', 9),
+            foreground='#ff6600'
+        ).grid(row=1, column=1, sticky='w')
+        
+        # Read more link on its own centered line
+        link_frame = ttk.Frame(main_frame)
+        link_frame.grid(row=12, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(5, 0))
+        readme_link = ttk.Label(link_frame, text="Read more on GitHub", foreground='blue', cursor='hand2', font=('Arial', 9, 'underline'))
+        readme_link.pack(anchor='center')
         readme_link.bind("<Button-1>", lambda e: webbrowser.open("https://github.com/Inc21/Wahoo-and-MyWhoosh-to-Garmin-Conect-Auto-Uploader#%EF%B8%8F-important-sync-behavior"))
         
-        # MyWhoosh help button
-        ttk.Button(main_frame, text="📖 How to Find MyWhoosh Folder", command=self.show_mywhoosh_help).grid(row=10, column=1, columnspan=2, sticky=tk.W, pady=(0,5), padx=5)
-        
-        ttk.Label(main_frame, text="Example: C:\\Users\\YourName\\AppData\\Local\\...\\MyWhoosh\\Content\\Data", font=('Arial', 8), foreground='gray').grid(row=11, column=1, columnspan=2, sticky=tk.W, padx=5)
-        
         # Separator
-        ttk.Separator(main_frame, orient='horizontal').grid(row=12, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=15)
+        ttk.Separator(main_frame, orient='horizontal').grid(row=13, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=15)
         
         # Auto-Start Settings
-        ttk.Label(main_frame, text="⏰ Auto-Start Settings", style='Header.TLabel').grid(row=13, column=0, columnspan=3, sticky=tk.W, pady=(5, 5))
+        ttk.Label(main_frame, text="⏰ Auto-Start Settings", style='Header.TLabel').grid(row=14, column=0, columnspan=3, sticky=tk.W, pady=(5, 5))
         
         # Helpful note
         note_text = "💡 Tip: Enable both 'Start with Windows' AND 'Start Auto-Sync' for automatic background uploads"
-        ttk.Label(main_frame, text=note_text, font=('Arial', 8, 'italic'), foreground='#0066cc', wraplength=600).grid(row=14, column=0, columnspan=3, sticky=tk.W, pady=(0, 5))
+        ttk.Label(main_frame, text=note_text, font=('Arial', 8, 'italic'), foreground='#0066cc', wraplength=600).grid(row=15, column=0, columnspan=3, sticky=tk.W, pady=(0, 5))
         
         # Start with Windows checkbox
         self.start_with_windows = tk.BooleanVar()
-        ttk.Checkbutton(main_frame, text="Start with Windows (run in background at startup)", variable=self.start_with_windows, command=self.toggle_autostart).grid(row=15, column=0, columnspan=3, sticky=tk.W, pady=5)
+        ttk.Checkbutton(main_frame, text="Start with Windows (run in background at startup)", variable=self.start_with_windows, command=self.toggle_autostart).grid(row=16, column=0, columnspan=3, sticky=tk.W, pady=5)
         
         # Check interval
         interval_frame = ttk.Frame(main_frame)
-        interval_frame.grid(row=16, column=0, columnspan=3, sticky=tk.W, pady=5)
+        interval_frame.grid(row=17, column=0, columnspan=3, sticky=tk.W, pady=5)
         
         ttk.Label(interval_frame, text="Check for new activities every:").pack(side=tk.LEFT, padx=(0, 5))
         self.interval_var = tk.IntVar(value=5)
@@ -308,33 +338,35 @@ class ConnectUploaderGUI:
         ttk.Label(interval_frame, text="minutes").pack(side=tk.LEFT, padx=(5, 0))
         
         # Separator
-        ttk.Separator(main_frame, orient='horizontal').grid(row=17, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+        ttk.Separator(main_frame, orient='horizontal').grid(row=18, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
         
         # Actions
-        ttk.Label(main_frame, text="▶️ Actions", style='Header.TLabel').grid(row=18, column=0, columnspan=3, sticky=tk.W, pady=(10, 5))
+        ttk.Label(main_frame, text="▶️ Actions", style='Header.TLabel').grid(row=19, column=0, columnspan=3, sticky=tk.W, pady=(10, 5))
         
         # Action buttons in a frame, centered with equal width
         btn_frame = ttk.Frame(main_frame)
-        btn_frame.grid(row=19, column=0, columnspan=3, pady=5)
+        btn_frame.grid(row=20, column=0, columnspan=3, pady=5)
         
         ttk.Button(btn_frame, text="Save Settings", command=self.save_settings, width=13).pack(side='left', padx=3)
         self.sync_button = ttk.Button(btn_frame, text="Sync Now", command=self.sync_now, width=13)
         self.sync_button.pack(side='left', padx=3)
         self.monitor_button = ttk.Button(btn_frame, text="Start Auto-Sync", command=self.toggle_monitoring, width=13)
         self.monitor_button.pack(side='left', padx=3)
+        self.minimize_button = ttk.Button(btn_frame, text="Minimize to Tray", command=self.minimize_to_tray, width=15)
+        self.minimize_button.pack(side='left', padx=3)
         ttk.Button(btn_frame, text="About", command=self.show_about, width=13).pack(side='left', padx=3)
         
         # Status
         self.status_label = ttk.Label(main_frame, text="Status: Idle", foreground='blue', font=('Arial', 9))
-        self.status_label.grid(row=20, column=0, columnspan=3, pady=(10, 0))
+        self.status_label.grid(row=21, column=0, columnspan=3, pady=(10, 0))
         
         # Last sync time
         self.last_sync_label = ttk.Label(main_frame, text="Last sync: Never", foreground='gray', font=('Arial', 8))
-        self.last_sync_label.grid(row=21, column=0, columnspan=3)
+        self.last_sync_label.grid(row=22, column=0, columnspan=3)
         
         # Last upload info
         self.last_upload_label = ttk.Label(main_frame, text="Last upload: None", foreground='gray', font=('Arial', 8))
-        self.last_upload_label.grid(row=22, column=0, columnspan=3)
+        self.last_upload_label.grid(row=23, column=0, columnspan=3)
         
         # View full log link
         log_link = ttk.Label(
@@ -344,7 +376,7 @@ class ConnectUploaderGUI:
             cursor='hand2',
             font=('Arial', 8, 'underline')
         )
-        log_link.grid(row=23, column=0, columnspan=3, pady=(5, 10))
+        log_link.grid(row=24, column=0, columnspan=3, pady=(5, 10))
         log_link.bind("<Button-1>", lambda e: self.open_log_file())
         
     def show_wahoo_help(self):
@@ -1002,8 +1034,36 @@ You can select and copy text from this window!"""
         self.status_label.config(text=f"Status: {icon}{message}", foreground=color)
         self.root.update_idletasks()
     
+    def minimize_to_tray(self):
+        """Explicitly minimize to system tray"""
+        if not self.is_monitoring:
+            response = messagebox.askyesno(
+                "Start Auto-Sync?",
+                "To minimize to tray, Auto-Sync should be running.\n\nWould you like to start Auto-Sync now?"
+            )
+            if response:
+                # Try to start monitoring first
+                if self.validate_settings():
+                    if not self.garmin_client:
+                        if not self.login_garmin():
+                            return
+                    self.start_monitoring()
+                else:
+                    return
+            else:
+                messagebox.showinfo(
+                    "Minimize to Tray",
+                    "Auto-Sync must be running to minimize to tray.\n\nTip: Start Auto-Sync first, then use this button."
+                )
+                return
+        
+        # Hide window and create tray icon
+        self.root.withdraw()
+        self.create_tray_icon()
+        logger.info("Window minimized to system tray by user")
+    
     def on_closing(self):
-        """Handle window close - check for unsaved changes and minimize to tray if monitoring"""
+        """Handle window close - ask user if they want to run in background or close"""
         # Check for unsaved settings first
         if self.settings_changed:
             response = messagebox.askyesnocancel(
@@ -1015,20 +1075,41 @@ You can select and copy text from this window!"""
             elif response:  # Yes - save
                 self.save_settings()
         
-        # Then handle minimize to tray if monitoring
+        # Always ask user what they want to do
         if self.is_monitoring:
+            # Already running - ask if they want to keep running or close
             response = messagebox.askyesno(
-                "Minimize to Tray?",
-                "Auto-sync is currently running.\n\n• Click YES to minimize to system tray (keeps running in background)\n• Click NO to stop auto-sync and close the app\n\nTip: Look for the Garmin icon in your system tray (bottom-right corner)"
+                "Keep Running in Background?",
+                "Auto-Sync is currently running.\n\n"
+                "• YES - Minimize to tray and keep syncing\n"
+                "• NO - Stop syncing and close app"
             )
             if response:
-                self.root.withdraw()  # Hide window
+                self.root.withdraw()
                 self.create_tray_icon()
                 self.update_status("Running in system tray", "green")
             else:
                 self.quit_app()
         else:
-            self.quit_app()
+            # Not running - ask if they want to start background sync or close
+            response = messagebox.askyesno(
+                "Run in Background?",
+                "Would you like to start Auto-Sync and run in the background?\n\n"
+                "• YES - Start syncing and minimize to tray\n"
+                "• NO - Close the app"
+            )
+            if response:
+                # Try to start auto-sync
+                if self.validate_settings():
+                    if not self.garmin_client:
+                        if not self.login_garmin():
+                            return
+                    self.start_monitoring()
+                    self.root.withdraw()
+                    self.create_tray_icon()
+                    self.update_status("Running in system tray", "green")
+            else:
+                self.quit_app()
     
     def create_tray_icon(self):
         """Create system tray icon"""
@@ -1311,9 +1392,9 @@ def main():
                 logger.info("Auto-start settings detected - starting monitoring and minimizing to tray")
                 # Start monitoring if credentials are set
                 if app.garmin_email.get() and app.garmin_password.get():
-                    root.after(2000, lambda: app.start_monitoring() if not app.is_monitoring else None)
-                    root.after(3000, lambda: root.withdraw())
-                    root.after(3500, lambda: app.create_tray_icon())
+                    root.after(500, lambda: app.start_monitoring() if not app.is_monitoring else None)
+                    root.after(800, lambda: root.withdraw())
+                    root.after(1000, lambda: app.create_tray_icon())
         except Exception as e:
             logger.error(f"Error during startup auto-start: {str(e)}")
     

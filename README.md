@@ -44,6 +44,17 @@ I built this originally as a personal Python script to solve my own manual uploa
 
 ## Download & Install
 
+### ⚡ Updating from a Previous Version?
+
+**Good news!** The app automatically detects and updates Windows auto-start shortcuts when you first run a new version. Simply:
+
+1. Download the new `GarminUploader-v1.0.x.exe` 
+2. Place it in the **same folder** as your old version
+3. Run it once - if you had "Start with Windows" enabled, the app will detect the old shortcut and offer to update it
+4. Your existing settings and logs are preserved automatically (no reconfiguration needed!)
+
+---
+
 ### Step 1: Download
 
 1. Download `GarminUploader.exe` from the releases/dist folder
