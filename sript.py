@@ -1,3 +1,6 @@
+# flake8: noqa: E501, F541, W293
+# Legacy script - see uploader_gui.py for the new GUI version
+
 import os
 import sys
 import io
@@ -6,15 +9,15 @@ import io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
-import time
-import shutil
-import threading
-from dotenv import load_dotenv
-from garminconnect import Garmin
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
-from pystray import Icon, MenuItem, Menu
-from PIL import Image, ImageDraw
+import time  # noqa: E402
+import shutil  # noqa: E402
+import threading  # noqa: E402
+from dotenv import load_dotenv  # noqa: E402
+from garminconnect import Garmin  # noqa: E402
+from watchdog.observers import Observer  # noqa: E402
+from watchdog.events import FileSystemEventHandler  # noqa: E402
+from pystray import Icon, MenuItem, Menu  # noqa: E402
+from PIL import Image, ImageDraw  # noqa: E402
 
 # Global state
 tray_icon = None
@@ -27,9 +30,18 @@ GARMIN_PASSWORD = os.getenv("GARMIN_PASSWORD")
 WATCH_FOLDER = r"C:\Users\Dell User\Dropbox\Apps\WahooFitness"
 UPLOADED_FOLDER = os.path.join(WATCH_FOLDER, "uploaded")
 ICON_PATH = os.path.join(os.path.dirname(__file__), "g.png")
-MYWHOOSH_FOLDER = r"C:\Users\Dell User\AppData\Local\Packages\MyWhooshTechnologyService.644173E064ED2_eps1123pz0kt0\LocalCache\Local\MyWhoosh\Content\Data"
-MYWHOOSH_TRACK_FILE = os.path.join(os.path.dirname(__file__), "mywhoosh_processed.txt")
-MYWHOOSH_UPLOADED_FOLDER = os.path.join(os.path.dirname(__file__), "mywhoosh_uploaded")  # Local cache for uploaded myWhoosh files
+MYWHOOSH_FOLDER = (
+    r"C:\Users\Dell User\AppData\Local\Packages"
+    r"\MyWhooshTechnologyService.644173E064ED2_eps1123pz0kt0"
+    r"\LocalCache\Local\MyWhoosh\Content\Data"
+)
+MYWHOOSH_TRACK_FILE = os.path.join(
+    os.path.dirname(__file__), "mywhoosh_processed.txt"
+)
+# Local cache for uploaded myWhoosh files
+MYWHOOSH_UPLOADED_FOLDER = os.path.join(
+    os.path.dirname(__file__), "mywhoosh_uploaded"
+)
 
 
 # Add a message and update the tray tooltip
@@ -212,8 +224,8 @@ def run_mywhoosh_sync():
         except Exception as e:
             print(f"❌ Error while monitoring myWhoosh: {e}")
 
-        # Check for updates every 10 seconds
-        time.sleep(10)
+        # Check for updates every 5 minutes (300 seconds) - activities don't change that frequently
+        time.sleep(300)
 
 
 # Create system tray icon

@@ -1,10 +1,32 @@
 {
     "cSpell.words": [
+        "codesign",
+        "columnspan",
+        "datas",
         "dotenv",
+        "ELEMNT",
         "garminconnect",
+        "hiddenimports",
+        "hooksconfig",
+        "hookspath",
+        "levelname",
+        "localappdata",
+        "MEIPASS",
         "mywhoosh",
         "MYWHOOSH",
-        "pystray"
+        "noarchive",
+        "onefile",
+        "padx",
+        "pady",
+        "pathex",
+        "pyinstaller",
+        "pystray",
+        "PYTHONIOENCODING",
+        "sript",
+        "startfile",
+        "textvariable",
+        "venv",
+        "wraplength"
     ],
     "python.defaultInterpreterPath": ".venv\\Scripts\\python.exe"
 }

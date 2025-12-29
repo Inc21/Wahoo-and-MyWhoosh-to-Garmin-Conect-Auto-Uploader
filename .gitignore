@@ -1,2 +1,11 @@
 .venv
 .env
+
+# Application runtime files
+uploader_config.json
+garmin_uploader.log
+
+# PyInstaller build files
+build/
+dist/
+*.spec
