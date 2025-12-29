@@ -223,12 +223,6 @@ The app creates 2 files in the **same folder as the EXE**:
 
 ---
 
-## For Developers
-
-See [GUI_README.md](GUI_README.md) for source code, build instructions, and development setup.
-
----
-
 ## Support
 
 **Developer:** [inc21](https://github.com/Inc21)  
