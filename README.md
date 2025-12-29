@@ -21,6 +21,27 @@ This app automatically syncs your Wahoo and MyWhoosh workout files (.FIT) to Gar
 
 ---
 
+## ⚠️ Important Sync Behavior
+
+The app handles the two platforms differently based on how they store files:
+
+- **Wahoo (Persistent):** If you connect a Dropbox account that has a history of Wahoo rides, the app **will** detect those files and upload your history to Garmin Connect automatically.
+- **MyWhoosh (Volatile):** MyWhoosh only stores the **most recent** activity in its local cache and overwrites it when you start a new session.
+  - **The Catch:** Your PC doesn't always have to be on for the sync to work eventually, **but** if you record multiple MyWhoosh activities while the app is closed (or the PC is off), the uploader will only "see" and sync the **very last one** when it finally boots up.
+  - **Recommendation:** Use the "Start with Windows" option so the app is always ready to catch MyWhoosh files before they are lost.
+
+---
+
+## 🔒 Security & Privacy
+
+I built this originally as a personal Python script to solve my own manual upload frustrations. Because this app handles Garmin credentials, transparency is a priority:
+
+- **Local Only:** Your credentials are never sent to any server except Garmin’s official login endpoint.
+- **Encryption:** Your Garmin password is not stored in plain text. It is encrypted locally on your machine using a unique hardware-linked key before being saved to `uploader_config.json`.
+- **Open Source:** The full source code is available here on GitHub for anyone to audit.
+
+---
+
 ## Download & Install
 
 ### Step 1: Download

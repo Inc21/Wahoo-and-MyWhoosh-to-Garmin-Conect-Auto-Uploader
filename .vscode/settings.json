@@ -1,5 +1,6 @@
 {
     "cSpell.words": [
+        "checkmark",
         "codesign",
         "columnspan",
         "datas",
@@ -7,6 +8,7 @@
         "ELEMNT",
         "garminconnect",
         "hiddenimports",
+        "highlightthickness",
         "hooksconfig",
         "hookspath",
         "levelname",
@@ -22,11 +24,13 @@
         "pyinstaller",
         "pystray",
         "PYTHONIOENCODING",
+        "scrollregion",
         "sript",
         "startfile",
         "textvariable",
         "venv",
-        "wraplength"
+        "wraplength",
+        "yscrollcommand"
     ],
     "python.defaultInterpreterPath": ".venv\\Scripts\\python.exe"
 }
