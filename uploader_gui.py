@@ -9,6 +9,7 @@ import os
 import sys
 import threading
 import time
+import datetime
 import logging
 import base64
 from garminconnect import Garmin
@@ -31,11 +32,19 @@ else:
     LOG_DIR = os.path.dirname(__file__)
 
 LOGO_PATH = os.path.join(BASE_DIR, "garmin-uploader-logo.PNG")
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 LOG_FILE = os.path.join(LOG_DIR, "garmin_uploader.log")
+MAX_LOG_SIZE_MB = 10  # Rotate log after 10MB
 
-# Setup logging (standard format without icons by default)
-file_handler = logging.FileHandler(LOG_FILE, encoding='utf-8')
+# Setup logging with rotation (standard format without icons by default)
+from logging.handlers import RotatingFileHandler
+
+file_handler = RotatingFileHandler(
+    LOG_FILE,
+    maxBytes=MAX_LOG_SIZE_MB * 1024 * 1024,  # 10MB
+    backupCount=3,  # Keep 3 backup files (~ 3 months of logs)
+    encoding='utf-8'
+)
 file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 
 console_handler = logging.StreamHandler()
@@ -63,6 +72,14 @@ def log_warning(message):
 def log_info(message):
     """Log an info message (no icon)"""
     logger.info(message)
+
+def log_separator():
+    """Add a blank line separator in logs for better grouping"""
+    # Write directly to handlers to create a true blank line
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler):
+            handler.stream.write("\n")
+            handler.flush()
 
 # Simple encryption key (better than plain text)
 # In production, consider using cryptography library
@@ -147,6 +164,8 @@ class ConnectUploaderGUI:
         
         self.create_widgets()
         self.load_settings()
+        self.load_last_sync_from_log()  # Restore last sync/upload info
+        self.check_old_version_shortcut()  # Check and update old version shortcuts
         
         # Handle window close (minimize to tray if monitoring)
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -221,13 +240,13 @@ class ConnectUploaderGUI:
         )
         
         ttk.Label(main_frame, text="Email:").grid(row=2, column=0, sticky=tk.W, pady=5)
-        self.garmin_email = ttk.Entry(main_frame, width=40)
-        self.garmin_email.grid(row=2, column=1, columnspan=2, sticky=(tk.W, tk.E), pady=5, padx=5)
+        self.garmin_email = ttk.Entry(main_frame, width=30)
+        self.garmin_email.grid(row=2, column=1, columnspan=2, sticky=tk.W, pady=5, padx=5)
         self.garmin_email.bind('<KeyRelease>', lambda e: self.mark_settings_changed())
         
         ttk.Label(main_frame, text="Password:").grid(row=3, column=0, sticky=tk.W, pady=5)
-        self.garmin_password = ttk.Entry(main_frame, width=40, show="*")
-        self.garmin_password.grid(row=3, column=1, columnspan=2, sticky=(tk.W, tk.E), pady=5, padx=5)
+        self.garmin_password = ttk.Entry(main_frame, width=30, show="*")
+        self.garmin_password.grid(row=3, column=1, columnspan=2, sticky=tk.W, pady=5, padx=5)
         self.garmin_password.bind('<KeyRelease>', lambda e: self.mark_settings_changed())
         
         # Folder Settings
@@ -250,28 +269,37 @@ class ConnectUploaderGUI:
         self.mywhoosh_folder.grid(row=8, column=1, sticky=(tk.W, tk.E), pady=5, padx=5)
         ttk.Button(main_frame, text="Browse", command=lambda: self.browse_folder(self.mywhoosh_folder)).grid(row=8, column=2, pady=5)
         
-        # MyWhoosh help button
-        ttk.Button(main_frame, text="📖 How to Find MyWhoosh Folder", command=self.show_mywhoosh_help).grid(row=9, column=1, columnspan=2, sticky=tk.W, pady=(0,5), padx=5)
+        # MyWhoosh warning with inline link
+        warning_frame = ttk.Frame(main_frame)
+        warning_frame.grid(row=9, column=0, columnspan=3, sticky=tk.W, pady=(5, 5))
         
-        ttk.Label(main_frame, text="Example: C:\\Users\\YourName\\AppData\\Local\\...\\MyWhoosh\\Content\\Data", font=('Arial', 8), foreground='gray').grid(row=10, column=1, columnspan=2, sticky=tk.W, padx=5)
+        ttk.Label(warning_frame, text="⚠️ MyWhoosh only keeps the latest activity. Multiple rides while app closed = only last syncs!", font=('Arial', 9, 'bold'), foreground='#ff6600', wraplength=450).pack(side='left')
+        readme_link = ttk.Label(warning_frame, text="Read more", foreground='blue', cursor='hand2', font=('Arial', 9, 'bold', 'underline'))
+        readme_link.pack(side='left', padx=(5, 0))
+        readme_link.bind("<Button-1>", lambda e: webbrowser.open("https://github.com/Inc21/Wahoo-and-MyWhoosh-to-Garmin-Conect-Auto-Uploader#%EF%B8%8F-important-sync-behavior"))
+        
+        # MyWhoosh help button
+        ttk.Button(main_frame, text="📖 How to Find MyWhoosh Folder", command=self.show_mywhoosh_help).grid(row=10, column=1, columnspan=2, sticky=tk.W, pady=(0,5), padx=5)
+        
+        ttk.Label(main_frame, text="Example: C:\\Users\\YourName\\AppData\\Local\\...\\MyWhoosh\\Content\\Data", font=('Arial', 8), foreground='gray').grid(row=11, column=1, columnspan=2, sticky=tk.W, padx=5)
         
         # Separator
-        ttk.Separator(main_frame, orient='horizontal').grid(row=11, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=15)
+        ttk.Separator(main_frame, orient='horizontal').grid(row=12, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=15)
         
         # Auto-Start Settings
-        ttk.Label(main_frame, text="⏰ Auto-Start Settings", style='Header.TLabel').grid(row=12, column=0, columnspan=3, sticky=tk.W, pady=(5, 5))
+        ttk.Label(main_frame, text="⏰ Auto-Start Settings", style='Header.TLabel').grid(row=13, column=0, columnspan=3, sticky=tk.W, pady=(5, 5))
         
         # Helpful note
         note_text = "💡 Tip: Enable both 'Start with Windows' AND 'Start Auto-Sync' for automatic background uploads"
-        ttk.Label(main_frame, text=note_text, font=('Arial', 8, 'italic'), foreground='#0066cc', wraplength=600).grid(row=13, column=0, columnspan=3, sticky=tk.W, pady=(0, 5))
+        ttk.Label(main_frame, text=note_text, font=('Arial', 8, 'italic'), foreground='#0066cc', wraplength=600).grid(row=14, column=0, columnspan=3, sticky=tk.W, pady=(0, 5))
         
         # Start with Windows checkbox
         self.start_with_windows = tk.BooleanVar()
-        ttk.Checkbutton(main_frame, text="Start with Windows (run in background at startup)", variable=self.start_with_windows, command=self.toggle_autostart).grid(row=14, column=0, columnspan=3, sticky=tk.W, pady=5)
+        ttk.Checkbutton(main_frame, text="Start with Windows (run in background at startup)", variable=self.start_with_windows, command=self.toggle_autostart).grid(row=15, column=0, columnspan=3, sticky=tk.W, pady=5)
         
         # Check interval
         interval_frame = ttk.Frame(main_frame)
-        interval_frame.grid(row=15, column=0, columnspan=3, sticky=tk.W, pady=5)
+        interval_frame.grid(row=16, column=0, columnspan=3, sticky=tk.W, pady=5)
         
         ttk.Label(interval_frame, text="Check for new activities every:").pack(side=tk.LEFT, padx=(0, 5))
         self.interval_var = tk.IntVar(value=5)
@@ -279,26 +307,22 @@ class ConnectUploaderGUI:
         interval_spinbox.pack(side=tk.LEFT)
         ttk.Label(interval_frame, text="minutes").pack(side=tk.LEFT, padx=(5, 0))
         
-        # Save Settings Button
-        ttk.Button(main_frame, text="Save Settings", command=self.save_settings).grid(row=16, column=0, columnspan=3, pady=(20, 10))
-        
         # Separator
         ttk.Separator(main_frame, orient='horizontal').grid(row=17, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
         
         # Actions
         ttk.Label(main_frame, text="▶️ Actions", style='Header.TLabel').grid(row=18, column=0, columnspan=3, sticky=tk.W, pady=(10, 5))
         
-        # Sync Now Button
-        self.sync_button = ttk.Button(main_frame, text="Sync Now", command=self.sync_now, width=20)
-        self.sync_button.grid(row=19, column=0, pady=10, padx=5)
+        # Action buttons in a frame, centered with equal width
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.grid(row=19, column=0, columnspan=3, pady=5)
         
-        # Start/Stop Monitoring
-        self.monitor_button = ttk.Button(main_frame, text="Start Auto-Sync", command=self.toggle_monitoring, width=20)
-        self.monitor_button.grid(row=19, column=1, pady=10, padx=5)
-        
-        # About Button
-        about_btn = ttk.Button(main_frame, text="ℹ️ About", command=self.show_about, width=20)
-        about_btn.grid(row=19, column=2, pady=10, padx=5)
+        ttk.Button(btn_frame, text="Save Settings", command=self.save_settings, width=13).pack(side='left', padx=3)
+        self.sync_button = ttk.Button(btn_frame, text="Sync Now", command=self.sync_now, width=13)
+        self.sync_button.pack(side='left', padx=3)
+        self.monitor_button = ttk.Button(btn_frame, text="Start Auto-Sync", command=self.toggle_monitoring, width=13)
+        self.monitor_button.pack(side='left', padx=3)
+        ttk.Button(btn_frame, text="About", command=self.show_about, width=13).pack(side='left', padx=3)
         
         # Status
         self.status_label = ttk.Label(main_frame, text="Status: Idle", foreground='blue', font=('Arial', 9))
@@ -468,6 +492,79 @@ You can select and copy text from this window!"""
         logger.info("Configuration saved (password encrypted)")
         return config
     
+    def load_last_sync_from_log(self):
+        """Load last sync and upload info from log file on startup"""
+        if not os.path.exists(LOG_FILE):
+            return
+        
+        try:
+            # Read last 200 lines of log file to ensure we catch everything
+            with open(LOG_FILE, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+                last_lines = lines[-200:] if len(lines) > 200 else lines
+            
+            # Search for last sync completion
+            last_sync_time = None
+            last_upload_info = None
+            
+            for line in reversed(last_lines):
+                # Look for "Sync completed" messages (with or without checkmark icon)
+                if ("Sync completed:" in line or "✅ Sync completed:" in line) and not last_sync_time:
+                    # Extract timestamp and info
+                    if " - INFO - " in line:
+                        timestamp_str = line.split(" - INFO - ")[0]
+                        try:
+                            # Parse timestamp: 2025-12-29 01:26:34,358
+                            dt = datetime.datetime.strptime(timestamp_str.strip(), "%Y-%m-%d %H:%M:%S,%f")
+                            last_sync_time = dt.strftime("%Y-%m-%d %H:%M:%S")
+                        except:
+                            pass
+                        
+                        # Extract upload count
+                        if "uploaded" in line.lower():
+                            import re
+                            match = re.search(r'(\d+) activit', line)
+                            if match:
+                                count = match.group(1)
+                                upload_time = dt.strftime("%Y-%m-%d %H:%M")
+                                if int(count) > 0:
+                                    last_upload_info = f"Last upload: {upload_time} - {count} file(s) uploaded"
+                                else:
+                                    last_upload_info = f"Last upload: {upload_time} - No new files"
+                
+                # Look for individual file uploads to get the filename (handle with or without checkmark)
+                if ("Successfully uploaded:" in line or "✅ Successfully uploaded:" in line) and not "file(s)" in str(last_upload_info or ""):
+                    if " - INFO - " in line:
+                        # Extract filename (handle with or without checkmark)
+                        if "✅ Successfully uploaded:" in line:
+                            parts = line.split("✅ Successfully uploaded: ")
+                        else:
+                            parts = line.split("Successfully uploaded: ")
+                        
+                        if len(parts) > 1:
+                            filename = parts[1].strip()
+                            try:
+                                timestamp_str = line.split(" - INFO - ")[0]
+                                dt = datetime.datetime.strptime(timestamp_str.strip(), "%Y-%m-%d %H:%M:%S,%f")
+                                upload_time = dt.strftime("%Y-%m-%d %H:%M")
+                                last_upload_info = f"Last upload: {upload_time} - Latest: {filename}"
+                            except:
+                                last_upload_info = f"Last upload: Latest: {filename}"
+                            break
+            
+            # Update UI
+            if last_sync_time:
+                self.last_sync_label.config(text=f"Last sync: {last_sync_time}")
+            
+            if last_upload_info:
+                self.last_upload_label.config(text=last_upload_info, foreground='green')
+            
+            if last_sync_time or last_upload_info:
+                log_info(f"Restored status from log - Sync: {last_sync_time}, Upload: {last_upload_info}")
+        
+        except Exception as e:
+            log_info(f"Could not load last sync info from log: {str(e)}")
+    
     def load_settings(self):
         self.garmin_email.insert(0, self.config.get('garmin_email', ''))
         # Decrypt password when loading
@@ -584,6 +681,94 @@ You can select and copy text from this window!"""
                 logger.error(f"Failed to disable auto-start: {str(e)}")
                 messagebox.showerror("Error", f"Could not disable auto-start: {e}")
     
+    def check_old_version_shortcut(self):
+        """Check for old version shortcuts and offer to update them"""
+        try:
+            startup_folder = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+            shortcut_path = os.path.join(startup_folder, 'GarminUploader.lnk')
+            
+            logger.info(f"Checking for old version shortcut at: {shortcut_path}")
+            
+            # Check if shortcut exists
+            if not os.path.exists(shortcut_path):
+                logger.info("No autostart shortcut found - skipping version check")
+                return
+            
+            # Read shortcut target using PowerShell (no external dependencies needed)
+            try:
+                # Get current exe path
+                if getattr(sys, 'frozen', False):
+                    current_exe = sys.executable
+                    logger.info(f"Current executable: {current_exe}")
+                else:
+                    # Running as script, skip check
+                    logger.info("Running as script - skipping version check")
+                    return
+                
+                # Use PowerShell to read shortcut target
+                ps_script = f"""$WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('{shortcut_path}'); Write-Output $Shortcut.TargetPath"""
+                result = os.popen(f'powershell -Command "{ps_script}"').read().strip()
+                
+                if not result:
+                    logger.warning("Could not read shortcut target path")
+                    return
+                
+                target_path = result
+                logger.info(f"Shortcut target: {target_path}")
+                
+                # Check if shortcut points to a different executable
+                if os.path.normpath(target_path) != os.path.normpath(current_exe):
+                    # Old version detected
+                    old_version = os.path.basename(target_path)
+                    current_version = os.path.basename(current_exe)
+                    
+                    logger.info(f"Version mismatch detected: {old_version} -> {current_version}")
+                    
+                    response = messagebox.askyesno(
+                        "Update Auto-Start?",
+                        f"Found auto-start shortcut for older version:\n\n"
+                        f"Old: {old_version}\n"
+                        f"Current: {current_version}\n\n"
+                        f"Would you like to update the shortcut to use the new version?"
+                    )
+                    
+                    if response:
+                        # Remove old shortcut
+                        os.remove(shortcut_path)
+                        logger.info(f"Removed old auto-start shortcut: {target_path}")
+                        
+                        # Create new shortcut
+                        working_dir = os.path.dirname(current_exe)
+                        ps_command = (
+                            f"$WshShell = New-Object -ComObject WScript.Shell; "
+                            f"$Shortcut = $WshShell.CreateShortcut('{shortcut_path}'); "
+                            f"$Shortcut.TargetPath = '{current_exe}'; "
+                            f"$Shortcut.Arguments = '--minimized'; "
+                            f"$Shortcut.WorkingDirectory = '{working_dir}'; "
+                            f"$Shortcut.WindowStyle = 7; "
+                            f"$Shortcut.Description = 'Garmin Connect Uploader'; "
+                            f"$Shortcut.Save()"
+                        )
+                        
+                        result = os.system(f'powershell -Command "{ps_command}"')
+                        
+                        if result == 0:
+                            logger.info(f"Updated auto-start shortcut to: {current_exe}")
+                            messagebox.showinfo("Updated", "Auto-start shortcut has been updated to the new version!")
+                        else:
+                            logger.error("Failed to create new shortcut")
+                            messagebox.showwarning("Partial Update", "Old shortcut removed, but failed to create new one.\n\nPlease re-enable 'Start with Windows' in settings.")
+                    else:
+                        logger.info("User declined to update auto-start shortcut")
+                else:
+                    logger.info("Shortcut already points to current version - no update needed")
+                        
+            except Exception as e:
+                logger.warning(f"Could not read shortcut details: {str(e)}")
+                
+        except Exception as e:
+            logger.warning(f"Error checking old version shortcut: {str(e)}")
+    
     def validate_settings(self):
         if not self.garmin_email.get() or not self.garmin_password.get():
             messagebox.showerror("Error", "Please enter your Garmin email and password")
@@ -699,10 +884,16 @@ You can select and copy text from this window!"""
         uploaded_folder = os.path.join(folder, "uploaded")
         os.makedirs(uploaded_folder, exist_ok=True)
         
+        # Add blank line before new job for better log grouping
+        log_separator()
         logger.info(f"Processing {source_name} folder: {folder}")
         
         try:
             for filename in os.listdir(folder):
+                # Skip the 'uploaded' subfolder
+                if filename == 'uploaded':
+                    continue
+                    
                 if filename.lower().endswith('.fit'):
                     file_path = os.path.join(folder, filename)
                     
@@ -750,6 +941,9 @@ You can select and copy text from this window!"""
             log_success(f"Completed {source_name} processing. Uploaded: {uploaded} files")
         else:
             log_success(f"Completed {source_name} processing. No new files to upload")
+        
+        # Add blank line after job completion for better grouping
+        log_separator()
         return uploaded, last_uploaded_file
     
     def toggle_monitoring(self):
@@ -985,15 +1179,114 @@ You can select and copy text from this window!"""
         close_btn.pack(pady=(5, 0))
     
     def open_log_file(self):
-        """Open the log file in the default text editor"""
+        """Open the log file in a viewer window (opens at the end)"""
         try:
-            if os.path.exists(LOG_FILE):
-                os.startfile(LOG_FILE)  # Windows-specific
-                logger.info("Log file opened by user")
-            else:
+            if not os.path.exists(LOG_FILE):
                 messagebox.showinfo("Log File", f"Log file not found yet.\n\nIt will be created at:\n{LOG_FILE}\n\nonce you start using the app.")
+                return
+            
+            # Create a viewer window
+            log_window = tk.Toplevel(self.root)
+            log_window.title("Garmin Uploader - Log File")
+            log_window.geometry("900x600")
+            
+            # Create scrolled text widget
+            text_widget = scrolledtext.ScrolledText(
+                log_window,
+                wrap=tk.WORD,
+                font=('Courier New', 9)
+            )
+            text_widget.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+            
+            # Read and display log file
+            with open(LOG_FILE, 'r', encoding='utf-8') as f:
+                log_content = f.read()
+                text_widget.insert(1.0, log_content)
+            
+            # Scroll to the end
+            text_widget.see(tk.END)
+            
+            # Make text selectable but prevent editing
+            # Bind keys to prevent modification while allowing Ctrl+F search
+            def block_edit(event):
+                # Allow Ctrl+C (copy), Ctrl+A (select all), Ctrl+F (find), arrow keys, etc.
+                if event.state & 0x4:  # Ctrl is pressed
+                    return  # Allow Ctrl+key combinations
+                if event.keysym in ('Left', 'Right', 'Up', 'Down', 'Home', 'End', 'Prior', 'Next'):
+                    return  # Allow navigation
+                return "break"  # Block other keys
+            
+            text_widget.bind("<Key>", block_edit)
+            
+            # Add search functionality with Ctrl+F
+            search_start_index = '1.0'
+            
+            def find_text(event=None):
+                nonlocal search_start_index
+                
+                # Create search dialog
+                search_window = tk.Toplevel(log_window)
+                search_window.title("Find in Log")
+                search_window.geometry("500x140")
+                search_window.resizable(False, False)
+                search_window.transient(log_window)
+                
+                ttk.Label(search_window, text="Find:").pack(pady=(15, 5), padx=15, anchor='w')
+                search_entry = ttk.Entry(search_window, width=50)
+                search_entry.pack(pady=5, padx=15, fill='x')
+                search_entry.focus()
+                
+                def do_search():
+                    nonlocal search_start_index
+                    search_term = search_entry.get()
+                    if not search_term:
+                        return
+                    
+                    # Remove previous highlights
+                    text_widget.tag_remove('found', '1.0', tk.END)
+                    
+                    # Search from current position
+                    pos = text_widget.search(search_term, search_start_index, tk.END, nocase=True)
+                    if pos:
+                        # Highlight found text
+                        end_pos = f"{pos}+{len(search_term)}c"
+                        text_widget.tag_add('found', pos, end_pos)
+                        text_widget.tag_config('found', background='yellow', foreground='black')
+                        text_widget.see(pos)
+                        search_start_index = end_pos
+                    else:
+                        # Not found or reached end, wrap to beginning
+                        search_start_index = '1.0'
+                        pos = text_widget.search(search_term, search_start_index, tk.END, nocase=True)
+                        if pos:
+                            end_pos = f"{pos}+{len(search_term)}c"
+                            text_widget.tag_add('found', pos, end_pos)
+                            text_widget.tag_config('found', background='yellow', foreground='black')
+                            text_widget.see(pos)
+                            search_start_index = end_pos
+                        else:
+                            messagebox.showinfo("Not Found", f"'{search_term}' not found in log.", parent=search_window)
+                
+                btn_frame = ttk.Frame(search_window)
+                btn_frame.pack(pady=20)
+                ttk.Button(btn_frame, text="Find Next", command=do_search, width=15).pack(side='left', padx=10)
+                ttk.Button(btn_frame, text="Close", command=search_window.destroy, width=15).pack(side='left', padx=10)
+                
+                # Bind Enter key to search
+                search_entry.bind('<Return>', lambda e: do_search())
+            
+            # Bind Ctrl+F to open search dialog
+            text_widget.bind('<Control-f>', find_text)
+            log_window.bind('<Control-f>', find_text)
+            
+            # Add close button
+            close_btn = ttk.Button(log_window, text="Close", command=log_window.destroy)
+            close_btn.pack(pady=5)
+            
+            logger.info("Log file opened by user")
+            
         except Exception as e:
-            logger.error(f"Failed to open log file: {str(e)}")
+            log_error(f"Failed to open log file: {str(e)}")
             messagebox.showerror("Error", f"Could not open log file:\n{str(e)}")
 
 def main():

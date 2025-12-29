@@ -2,7 +2,7 @@
 
 Automatically upload workout activities from Wahoo and MyWhoosh to Garmin Connect.
 
-Version 1.0.0 | Windows Desktop Application
+Version 1.0.1 | Windows Desktop Application
 
 ---
 
@@ -171,22 +171,28 @@ Click **"Save Settings"** - this will:
 The app creates 2 files in the **same folder as the EXE**:
 
 1. **`uploader_config.json`** - Your settings (password is encrypted)
-2. **`garmin_uploader.log`** - Activity log with timestamps
+2. **`garmin_uploader.log`** - Activity log with timestamps (auto-rotates at 10MB, keeps 3 backups)
 
 **View the log:**
 
 - Click **"ℹ️ About"** button
 - Click **"📄 View Log"** button
-- Opens in Notepad for searching
+- Opens in built-in viewer showing latest entries first
 
 **What's logged:**
 
 - App startup/shutdown
 - Garmin login attempts (success/failure)
 - File uploads (filename, timestamp)
-- Errors and warnings
+- Errors and warnings with visual icons (✅ success, ❌ error, ⚠️ warning)
 - Auto-sync start/stop
 - Settings changes
+
+**Log retention:**
+
+- Automatically rotates when log reaches 10MB
+- Keeps 3 backup files (~3 months of history)
+- Prevents disk space issues
 
 ---
 

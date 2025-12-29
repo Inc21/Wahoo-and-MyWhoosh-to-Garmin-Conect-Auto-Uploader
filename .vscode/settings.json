@@ -1,5 +1,6 @@
 {
     "cSpell.words": [
+        "activit",
         "checkmark",
         "codesign",
         "columnspan",
@@ -11,12 +12,14 @@
         "highlightthickness",
         "hooksconfig",
         "hookspath",
+        "keysym",
         "levelname",
         "localappdata",
         "MEIPASS",
         "mywhoosh",
         "MYWHOOSH",
         "noarchive",
+        "nocase",
         "onefile",
         "padx",
         "pady",
