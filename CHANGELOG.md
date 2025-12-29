@@ -2,10 +2,18 @@
 
 All notable changes to Garmin Connect Uploader will be documented in this file.
 
-## [1.0.1] - 2025-12-29
+## ⚡ IMPORTANT: How to Update
 
-> **⚡ IMPORTANT for Users Updating:**  
-> This version automatically detects and updates Windows auto-start shortcuts from previous versions! Simply run the new exe from the same folder as your old one. If you had "Start with Windows" enabled, the app will offer to update the shortcut to the new version. Your settings (`uploader_config.json`) and logs (`garmin_uploader.log`) are preserved as long as the new exe is in the same location.
+From **v1.0.1** onwards, the app includes a "Smart Migration" feature to handle older versions automatically. To update correctly:
+
+1. **Keep it in the family:** Place the new `.exe` in the same folder as your previous version. This ensures your settings (`uploader_config.json`) and logs are preserved.
+2. **Run the new version:** Once launched, the app will detect if you have an old "Start with Windows" shortcut pointing to the previous file.
+3. **One-Click Update:** A prompt will appear asking if you'd like to update the shortcut. Simply click **Yes** to ensure the new version is the one that launches at boot.
+
+> [!IMPORTANT]  
+> Your settings and logs are safe as long as the new EXE is in the same location as the old one. You can safely delete the old version's EXE file once the shortcut has been updated.
+
+## [1.0.1] - 2025-12-29
 
 ### Added
 
