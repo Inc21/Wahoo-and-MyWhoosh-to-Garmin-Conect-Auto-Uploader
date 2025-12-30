@@ -129,9 +129,27 @@ class ConnectUploaderGUI:
     def __init__(self, root):
         self.root = root
         self.root.title(f"Garmin Connect Uploader v{VERSION}")
-        self.root.geometry("600x825")
-        self.root.minsize(600, 825)  # Set minimum size to prevent cutoff
-        self.root.resizable(True, True)  # Allow resizing
+        # Get DPI scaling factor
+        scaling = self.root.tk.call('tk', 'scaling')
+        self.scaling = scaling  # Store for use in dialog windows
+        
+        # Base dimensions at 96 DPI (1.0 scaling)
+        base_width = 600
+        base_min_height = 650  # Minimum for small screens
+        base_max_height = 900  # Maximum initial height
+        
+        # Adjust for actual DPI scaling
+        width = int(base_width * (scaling / 1.33))
+        min_height = int(base_min_height * (scaling / 1.33))
+        max_height = int(base_max_height * (scaling / 1.33))
+        
+        # Start with minimum height, will auto-size after UI is built
+        self.root.geometry(f"{width}x{min_height}")
+        self.root.minsize(width, min_height)
+        self.root.resizable(True, True)
+        
+        # Store for later use
+        self._max_height = max_height
         
         # Set modern styling
         style = ttk.Style()
@@ -186,6 +204,10 @@ class ConnectUploaderGUI:
         # Main container inside canvas
         main_frame = ttk.Frame(canvas, padding="20")
         
+        # Configure grid weights for responsive layout
+        main_frame.columnconfigure(1, weight=1)  # Column 1 (entry fields) expands
+        main_frame.columnconfigure(2, weight=1)  # Column 2 also expands
+        
         # Configure canvas
         canvas.configure(yscrollcommand=scrollbar.set)
         
@@ -196,16 +218,16 @@ class ConnectUploaderGUI:
         # Create window in canvas
         canvas_frame = canvas.create_window((0, 0), window=main_frame, anchor="nw")
         
-        # Update scroll region when frame size changes
+        # Update scroll region and make frame fill canvas width
         def on_frame_configure(event):
             canvas.configure(scrollregion=canvas.bbox("all"))
-            # Center the frame horizontally
-            canvas_width = event.width
-            frame_width = main_frame.winfo_reqwidth()
-            x_position = max(0, (canvas_width - frame_width) // 2)
-            canvas.coords(canvas_frame, x_position, 0)
+        
+        def on_canvas_configure(event):
+            # Make the frame fill the canvas width
+            canvas.itemconfig(canvas_frame, width=event.width)
         
         main_frame.bind("<Configure>", on_frame_configure)
+        canvas.bind("<Configure>", on_canvas_configure)
         
         # Bind mousewheel to canvas
         def on_mousewheel(event):
@@ -248,13 +270,13 @@ class ConnectUploaderGUI:
         )
         
         ttk.Label(main_frame, text="Email:").grid(row=2, column=0, sticky=tk.W, pady=5)
-        self.garmin_email = ttk.Entry(main_frame, width=30)
-        self.garmin_email.grid(row=2, column=1, columnspan=2, sticky=tk.W, pady=5, padx=5)
+        self.garmin_email = ttk.Entry(main_frame, width=35)
+        self.garmin_email.grid(row=2, column=1, sticky=tk.W, pady=5, padx=5)
         self.garmin_email.bind('<KeyRelease>', lambda e: self.mark_settings_changed())
         
         ttk.Label(main_frame, text="Password:").grid(row=3, column=0, sticky=tk.W, pady=5)
-        self.garmin_password = ttk.Entry(main_frame, width=30, show="*")
-        self.garmin_password.grid(row=3, column=1, columnspan=2, sticky=tk.W, pady=5, padx=5)
+        self.garmin_password = ttk.Entry(main_frame, show="*", width=35)
+        self.garmin_password.grid(row=3, column=1, sticky=tk.W, pady=5, padx=5)
         self.garmin_password.bind('<KeyRelease>', lambda e: self.mark_settings_changed())
         
         # Folder Settings
@@ -264,10 +286,11 @@ class ConnectUploaderGUI:
         ttk.Label(main_frame, text="Wahoo Folder (Dropbox):").grid(row=5, column=0, columnspan=3, sticky=tk.W, pady=(5, 2))
         wahoo_row = ttk.Frame(main_frame)
         wahoo_row.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 2))
-        self.wahoo_folder = ttk.Entry(wahoo_row, width=50)
+        self.wahoo_folder = ttk.Entry(wahoo_row)
         self.wahoo_folder.pack(side='left', fill='x', expand=True, padx=(0, 5))
-        ttk.Button(wahoo_row, text="Browse", command=lambda: self.browse_folder(self.wahoo_folder), width=8).pack(side='left', padx=(0, 3))
-        ttk.Button(wahoo_row, text="?", command=self.show_wahoo_help, width=3).pack(side='left')
+        ttk.Button(wahoo_row, text="Browse", command=lambda: self.browse_folder(self.wahoo_folder)).pack(side='left', padx=(0, 3))
+        help_btn = ttk.Button(wahoo_row, text="?", command=self.show_wahoo_help, width=2)
+        help_btn.pack(side='left')
         
         ttk.Label(main_frame, text="Example: C:\\Users\\YourName\\Dropbox\\Apps\\WahooFitness", font=('Arial', 8), foreground='gray').grid(row=7, column=0, columnspan=3, sticky=tk.W)
         
@@ -275,10 +298,11 @@ class ConnectUploaderGUI:
         ttk.Label(main_frame, text="MyWhoosh Folder:").grid(row=8, column=0, columnspan=3, sticky=tk.W, pady=(10, 2))
         mywhoosh_row = ttk.Frame(main_frame)
         mywhoosh_row.grid(row=9, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 2))
-        self.mywhoosh_folder = ttk.Entry(mywhoosh_row, width=50)
+        self.mywhoosh_folder = ttk.Entry(mywhoosh_row)
         self.mywhoosh_folder.pack(side='left', fill='x', expand=True, padx=(0, 5))
-        ttk.Button(mywhoosh_row, text="Browse", command=lambda: self.browse_folder(self.mywhoosh_folder), width=8).pack(side='left', padx=(0, 3))
-        ttk.Button(mywhoosh_row, text="?", command=self.show_mywhoosh_help, width=3).pack(side='left')
+        ttk.Button(mywhoosh_row, text="Browse", command=lambda: self.browse_folder(self.mywhoosh_folder)).pack(side='left', padx=(0, 3))
+        help_btn2 = ttk.Button(mywhoosh_row, text="?", command=self.show_mywhoosh_help, width=2)
+        help_btn2.pack(side='left')
         
         ttk.Label(main_frame, text="Example: C:\\Users\\YourName\\AppData\\Local\\...\\MyWhoosh\\Content\\Data", font=('Arial', 8), foreground='gray').grid(row=10, column=0, columnspan=3, sticky=tk.W)
         
@@ -347,14 +371,14 @@ class ConnectUploaderGUI:
         btn_frame = ttk.Frame(main_frame)
         btn_frame.grid(row=20, column=0, columnspan=3, pady=5)
         
-        ttk.Button(btn_frame, text="Save Settings", command=self.save_settings, width=13).pack(side='left', padx=3)
-        self.sync_button = ttk.Button(btn_frame, text="Sync Now", command=self.sync_now, width=13)
+        ttk.Button(btn_frame, text="Save Settings", command=self.save_settings).pack(side='left', padx=3)
+        self.sync_button = ttk.Button(btn_frame, text="Sync Now", command=self.sync_now)
         self.sync_button.pack(side='left', padx=3)
-        self.monitor_button = ttk.Button(btn_frame, text="Start Auto-Sync", command=self.toggle_monitoring, width=13)
+        self.monitor_button = ttk.Button(btn_frame, text="Start Auto-Sync", command=self.toggle_monitoring)
         self.monitor_button.pack(side='left', padx=3)
-        self.minimize_button = ttk.Button(btn_frame, text="Minimize to Tray", command=self.minimize_to_tray, width=15)
+        self.minimize_button = ttk.Button(btn_frame, text="Minimize to Tray", command=self.minimize_to_tray)
         self.minimize_button.pack(side='left', padx=3)
-        ttk.Button(btn_frame, text="About", command=self.show_about, width=13).pack(side='left', padx=3)
+        ttk.Button(btn_frame, text="About", command=self.show_about).pack(side='left', padx=3)
         
         # Status
         self.status_label = ttk.Label(main_frame, text="Status: Idle", foreground='blue', font=('Arial', 9))
@@ -379,11 +403,27 @@ class ConnectUploaderGUI:
         log_link.grid(row=24, column=0, columnspan=3, pady=(5, 10))
         log_link.bind("<Button-1>", lambda e: self.open_log_file())
         
+        # Auto-size window to content after UI is built
+        self.root.update_idletasks()  # Force layout calculation
+        required_height = main_frame.winfo_reqheight() + 40  # Add padding
+        
+        # Use required height but cap at max_height to prevent too-tall windows
+        actual_height = min(required_height, self._max_height)
+        
+        # Get current geometry width
+        current_width = self.root.winfo_width()
+        self.root.geometry(f"{current_width}x{actual_height}")
+        
     def show_wahoo_help(self):
         # Create a new window with selectable text
         help_window = tk.Toplevel(self.root)
         help_window.title("Wahoo Setup Instructions")
-        help_window.geometry("550x500")
+        
+        # Apply DPI scaling
+        base_width, base_height = 550, 500
+        width = int(base_width * (self.scaling / 1.33))
+        height = int(base_height * (self.scaling / 1.33))
+        help_window.geometry(f"{width}x{height}")
         help_window.resizable(False, False)
         
         # Title
@@ -438,7 +478,12 @@ You can select and copy text from this window!"""
         # Create a new window with selectable text
         help_window = tk.Toplevel(self.root)
         help_window.title("MyWhoosh Folder Instructions")
-        help_window.geometry("600x500")
+        
+        # Apply DPI scaling
+        base_width, base_height = 600, 500
+        width = int(base_width * (self.scaling / 1.33))
+        height = int(base_height * (self.scaling / 1.33))
+        help_window.geometry(f"{width}x{height}")
         help_window.resizable(False, False)
         
         # Title
@@ -1163,12 +1208,16 @@ You can select and copy text from this window!"""
         """Show About dialog with developer info"""
         about_window = tk.Toplevel(self.root)
         about_window.title("About Garmin Connect Uploader")
-        about_window.geometry("480x520")  # Increased height for more room
+        
+        # Apply DPI scaling
+        base_width, base_height = 480, 520
+        width = int(base_width * (self.scaling / 1.33))
+        height = int(base_height * (self.scaling / 1.33))
+        about_window.geometry(f"{width}x{height}")
         about_window.resizable(False, False)
         
         # Center the window
         about_window.transient(self.root)
-        about_window.grab_set()
         
         # Content frame
         content = ttk.Frame(about_window, padding="20")
@@ -1269,7 +1318,12 @@ You can select and copy text from this window!"""
             # Create a viewer window
             log_window = tk.Toplevel(self.root)
             log_window.title("Garmin Uploader - Log File")
-            log_window.geometry("900x600")
+            
+            # Apply DPI scaling
+            base_width, base_height = 900, 600
+            width = int(base_width * (self.scaling / 1.33))
+            height = int(base_height * (self.scaling / 1.33))
+            log_window.geometry(f"{width}x{height}")
             
             # Create scrolled text widget
             text_widget = scrolledtext.ScrolledText(
@@ -1302,13 +1356,25 @@ You can select and copy text from this window!"""
             # Add search functionality with Ctrl+F
             search_start_index = '1.0'
             
+            search_window = None  # Track search window to prevent multiple instances
+            
             def find_text(event=None):
-                nonlocal search_start_index
+                nonlocal search_start_index, search_window
+                
+                # If search window already exists, focus it instead of creating new one
+                if search_window and search_window.winfo_exists():
+                    search_window.focus()
+                    return
                 
                 # Create search dialog
                 search_window = tk.Toplevel(log_window)
                 search_window.title("Find in Log")
-                search_window.geometry("500x140")
+                
+                # Apply DPI scaling
+                base_width, base_height = 500, 140
+                width = int(base_width * (self.scaling / 1.33))
+                height = int(base_height * (self.scaling / 1.33))
+                search_window.geometry(f"{width}x{height}")
                 search_window.resizable(False, False)
                 search_window.transient(log_window)
                 
