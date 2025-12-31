@@ -19,11 +19,16 @@ import time
 import datetime
 import logging
 import base64
+import tempfile
 from garminconnect import Garmin
 from PIL import Image, ImageTk
 from pystray import Icon, Menu, MenuItem
 import webbrowser
 import shutil
+try:
+    import win32com.client
+except ImportError:
+    win32com = None  # This module might not be available in all environments
 
 # Configuration file
 CONFIG_FILE = "uploader_config.json"
@@ -39,7 +44,7 @@ else:
     LOG_DIR = os.path.dirname(__file__)
 
 LOGO_PATH = os.path.join(BASE_DIR, "garmin-uploader-logo.PNG")
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 LOG_FILE = os.path.join(LOG_DIR, "garmin_uploader.log")
 MAX_LOG_SIZE_MB = 10  # Rotate log after 10MB
 
@@ -195,6 +200,55 @@ class ConnectUploaderGUI:
         
         # Handle window close (minimize to tray if monitoring)
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+            
+        # Initialize garmin session directory
+        self.session_dir = os.path.join(os.path.expanduser("~"), "AppData", "Local", "GarminUploader", "session")
+        os.makedirs(self.session_dir, exist_ok=True)
+            
+        # Try to login with session first
+        self.garmin_client = None
+        self.try_session_login()
+        
+    def try_session_login(self):
+        """Try to login using saved session tokens"""
+        try:
+            email = self.garmin_email.get() if self.garmin_email else self.config.get('garmin_email', '')
+            password = self.garmin_password.get() if self.garmin_password else self.config.get('garmin_password', '')
+                
+            if not email or not password:
+                return False
+                
+            # Create session directory specific to this user
+            user_session_dir = os.path.join(self.session_dir, email.replace('@', '_').replace('.', '_'))
+                
+            # Check if session files exist
+            user_session_dir = os.path.join(self.session_dir, email.replace('@', '_').replace('.', '_'))
+            session_files = []
+            if os.path.exists(user_session_dir):
+                session_files = [f for f in os.listdir(user_session_dir) if os.path.isfile(os.path.join(user_session_dir, f))]
+            if session_files:
+                # Try to create client with session_dir if supported
+                try:
+                    self.garmin_client = Garmin(email, password, session_dir=user_session_dir)
+                    # Try to get user profile to verify session is valid
+                    self.garmin_client.get_user_profile()
+                    logger.info("Successfully logged in using saved session")
+                    self.update_status("Logged in using saved session", "green")
+                    return True
+                except TypeError:
+                    # session_dir not supported
+                    logger.warning("session_dir parameter not supported by garminconnect library")
+                    return False
+                except Exception:
+                    # Session failed, fall back to credentials
+                    logger.warning("Session login failed, will use credentials")
+                    pass
+        except Exception as e:
+            logger.warning(f"Session login failed, will use credentials: {str(e)}")
+            # Session failed, fall back to credentials
+            pass
+            
+        return False
         
     def create_widgets(self):
         # Create canvas with scrollbar for content
@@ -218,22 +272,60 @@ class ConnectUploaderGUI:
         # Create window in canvas
         canvas_frame = canvas.create_window((0, 0), window=main_frame, anchor="nw")
         
+        # Create a single global scroll handler
+        def on_mousewheel(event):
+            # event.delta works for Windows; use factor of 120 for smooth scrolling
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            return "break"
+        
+        # Bind the wheel only when the mouse enters the canvas area
+        canvas.bind("<Enter>", lambda _: canvas.bind_all("<MouseWheel>", on_mousewheel))
+        canvas.bind("<Leave>", lambda _: canvas.unbind_all("<MouseWheel>"))
+        
+        # Add Linux support (optional but good practice)
+        canvas.bind("<Enter>", lambda _: canvas.bind_all("<Button-4>", lambda e: canvas.yview_scroll(-1, "units")), add="+")
+        canvas.bind("<Enter>", lambda _: canvas.bind_all("<Button-5>", lambda e: canvas.yview_scroll(1, "units")), add="+")
+        canvas.bind("<Leave>", lambda _: canvas.unbind_all("<Button-4>"), add="+")
+        canvas.bind("<Leave>", lambda _: canvas.unbind_all("<Button-5>"), add="+")
+        
         # Update scroll region and make frame fill canvas width
         def on_frame_configure(event):
-            canvas.configure(scrollregion=canvas.bbox("all"))
+            # Only enable scrolling when content exceeds canvas size
+            canvas.update_idletasks()  # Ensure sizes are calculated
+            frame_height = main_frame.winfo_reqheight()
+            canvas_height = canvas.winfo_height()
+            
+            if frame_height > canvas_height:
+                # Content exceeds canvas, enable scrolling
+                canvas.configure(scrollregion=canvas.bbox("all"))
+            else:
+                # Content fits, disable scrolling
+                canvas.configure(scrollregion=(0, 0, canvas.winfo_width(), canvas_height))
+        
+        # Bind mousewheel to canvas
+        def on_mousewheel(event):
+            # Scroll the canvas regardless of content size
+            # Use the event.delta to determine scroll direction
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            return "break"  # Prevent propagation
         
         def on_canvas_configure(event):
             # Make the frame fill the canvas width
             canvas.itemconfig(canvas_frame, width=event.width)
+            # Update scroll region when canvas is resized
+            canvas.update_idletasks()  # Ensure sizes are calculated
+            frame_height = main_frame.winfo_reqheight()
+            canvas_height = canvas.winfo_height()
+            
+            if frame_height > canvas_height:
+                # Content exceeds canvas, enable scrolling
+                canvas.configure(scrollregion=canvas.bbox("all"))
+            else:
+                # Content fits, disable scrolling
+                canvas.configure(scrollregion=(0, 0, event.width, canvas_height))
         
         main_frame.bind("<Configure>", on_frame_configure)
         canvas.bind("<Configure>", on_canvas_configure)
-        
-        # Bind mousewheel to canvas
-        def on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        
-        canvas.bind_all("<MouseWheel>", on_mousewheel)
         
         # Title with logo
         title_frame = ttk.Frame(main_frame)
@@ -413,6 +505,20 @@ class ConnectUploaderGUI:
         # Get current geometry width
         current_width = self.root.winfo_width()
         self.root.geometry(f"{current_width}x{actual_height}")
+        
+        # Preserve scroll position after window resize to prevent jumping to top
+        try:
+            # Get current scroll position before resize
+            current_pos = canvas.yview()
+            # Only scroll to top if it was already at the top
+            if current_pos and current_pos[0] == 0.0:
+                canvas.yview_moveto(0)
+            else:
+                # Restore current scroll position
+                canvas.yview_moveto(current_pos[0] if current_pos else 0)
+        except:
+            # If canvas is not ready, default to top
+            canvas.yview_moveto(0)  # Canvas might not be ready yet
         
     def show_wahoo_help(self):
         # Create a new window with selectable text
@@ -681,7 +787,14 @@ You can select and copy text from this window!"""
         
         try:
             # Test login in background thread to avoid blocking UI
-            test_client = Garmin(email, password)
+            # Create temporary session directory for validation
+            temp_session_dir = os.path.join(tempfile.gettempdir(), f"garmin_validate_{email.replace('@', '_').replace('.', '_')}")
+            # Try to create client with session_dir if supported
+            try:
+                test_client = Garmin(email, password, session_dir=temp_session_dir)
+            except TypeError:
+                # session_dir not supported, create without it
+                test_client = Garmin(email, password)
             test_client.login()
             log_success("Garmin credentials validated successfully")
             messagebox.showinfo("Credentials Valid", "✅ Garmin credentials are valid!")
@@ -700,6 +813,78 @@ You can select and copy text from this window!"""
         """Mark that settings have been modified"""
         self.settings_changed = True
     
+    def get_shortcut_target(self, shortcut_path):
+        """Get the target path of a Windows shortcut using COM objects"""
+        if win32com:
+            try:
+                shell = win32com.client.Dispatch("WScript.Shell")
+                shortcut = shell.CreateShortcut(shortcut_path)
+                return shortcut.TargetPath
+            except Exception:
+                pass
+        
+        # Fallback: try using PowerShell in a less obvious way
+        try:
+            import subprocess
+            ps_command = f'powershell -ExecutionPolicy Bypass -Command "(New-Object -ComObject WScript.Shell).CreateShortcut(\"{shortcut_path}\").TargetPath"'
+            result = subprocess.run(ps_command, capture_output=True, text=True, shell=True)
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except Exception:
+            pass
+        return None
+    
+    def create_autostart_shortcut(self):
+        """Quietly create the auto-start shortcut without user interaction"""
+        startup_folder = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+        shortcut_path = os.path.join(startup_folder, 'GarminUploader.lnk')
+        
+        if getattr(sys, 'frozen', False) or '__compiled__' in globals():
+            exe_path = sys.executable
+        else:
+            exe_path = os.path.abspath(__file__)
+        
+        working_dir = os.path.dirname(exe_path)
+        
+        if win32com:
+            try:
+                # Create shortcut using COM objects instead of PowerShell to be more stealthy
+                shell = win32com.client.Dispatch("WScript.Shell")
+                shortcut = shell.CreateShortcut(shortcut_path)
+                shortcut.TargetPath = exe_path
+                shortcut.Arguments = "--minimized"
+                shortcut.WorkingDirectory = working_dir
+                shortcut.WindowStyle = 7  # Minimized window
+                shortcut.Description = "Garmin Connect Uploader"
+                shortcut.Save()
+                
+                logger.info(f"Auto-start shortcut created: {shortcut_path}")
+                return
+            except Exception as e:
+                logger.error(f"Failed to create shortcut using COM: {str(e)}")
+        
+        # Fallback to PowerShell if COM fails
+        try:
+            import subprocess
+            ps_command = (
+                f'$WshShell = New-Object -ComObject WScript.Shell; '
+                f'$Shortcut = $WshShell.CreateShortcut("{shortcut_path}"); '
+                f'$Shortcut.TargetPath = "{exe_path}"; '
+                f'$Shortcut.Arguments = "--minimized"; '
+                f'$Shortcut.WorkingDirectory = "{working_dir}"; '
+                f'$Shortcut.WindowStyle = 7; '
+                f'$Shortcut.Description = "Garmin Connect Uploader"; '
+                f'$Shortcut.Save()'
+            )
+            result = subprocess.run(f'powershell -ExecutionPolicy Bypass -Command "{ps_command}"', 
+                                  shell=True, capture_output=True, text=True)
+            if result.returncode == 0:
+                logger.info(f"Auto-start shortcut created via PowerShell: {shortcut_path}")
+            else:
+                logger.error(f"PowerShell shortcut creation failed: {result.stderr}")
+        except Exception as ps_e:
+            logger.error(f"PowerShell method failed to create shortcut: {str(ps_e)}")
+    
     def toggle_autostart(self):
         """Toggle Windows startup using shortcut"""
         startup_folder = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
@@ -708,40 +893,9 @@ You can select and copy text from this window!"""
         if self.start_with_windows.get():
             # Create startup shortcut
             try:
-                # Get the current executable path
-                if getattr(sys, 'frozen', False):
-                    # Running as EXE
-                    exe_path = sys.executable
-                else:
-                    # Running as script - create VBS to run it
-                    exe_path = os.path.join(os.path.dirname(__file__), 'start_uploader_silent.vbs')
-                    if not os.path.exists(exe_path):
-                        messagebox.showerror("Error", "start_uploader_silent.vbs not found!\nPlease run from the installed location.")
-                        self.start_with_windows.set(False)
-                        return
-                
-                # Create shortcut using PowerShell with proper escaping
-                working_dir = os.path.dirname(exe_path)
-                ps_command = (
-                    f"$WshShell = New-Object -ComObject WScript.Shell; "
-                    f"$Shortcut = $WshShell.CreateShortcut('{shortcut_path}'); "
-                    f"$Shortcut.TargetPath = '{exe_path}'; "
-                    f"$Shortcut.Arguments = '--minimized'; "
-                    f"$Shortcut.WorkingDirectory = '{working_dir}'; "
-                    f"$Shortcut.WindowStyle = 7; "
-                    f"$Shortcut.Description = 'Garmin Connect Uploader'; "
-                    f"$Shortcut.Save()"
-                )
-                
-                result = os.system(f'powershell -Command "{ps_command}"')
-                
-                if result == 0:
-                    logger.info(f"Auto-start shortcut created: {shortcut_path}")
-                    messagebox.showinfo("Auto-Start Enabled", "Garmin Uploader will now start automatically when Windows starts!\n\nIt will start minimized to system tray.")
-                    self.update_status("Auto-start enabled", "green")
-                else:
-                    raise Exception("PowerShell command failed")
-                    
+                self.create_autostart_shortcut()
+                messagebox.showinfo("Auto-Start Enabled", "Garmin Uploader will now start automatically when Windows starts!\n\nIt will start minimized to system tray.")
+                self.update_status("Auto-start enabled", "green")
             except Exception as e:
                 logger.error(f"Failed to enable auto-start: {str(e)}")
                 messagebox.showerror("Error", f"Could not enable auto-start: {e}")
@@ -759,90 +913,69 @@ You can select and copy text from this window!"""
                 messagebox.showerror("Error", f"Could not disable auto-start: {e}")
     
     def check_old_version_shortcut(self):
-        """Check for old version shortcuts and offer to update them"""
+        """Check for old version shortcuts and quietly update them if needed"""
         try:
             startup_folder = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
             shortcut_path = os.path.join(startup_folder, 'GarminUploader.lnk')
-            
-            logger.info(f"Checking for old version shortcut at: {shortcut_path}")
-            
+                
+            logger.info(f"Checking for auto-start shortcut at: {shortcut_path}")
+                
             # Check if shortcut exists
             if not os.path.exists(shortcut_path):
-                logger.info("No autostart shortcut found - skipping version check")
+                # Check if auto-start is enabled in settings
+                if hasattr(self, 'start_with_windows') and self.start_with_windows.get():
+                    logger.info("Auto-start is enabled but shortcut is missing - quietly recreating shortcut")
+                    # Quietly recreate the shortcut without user interaction
+                    self.create_autostart_shortcut()
+                else:
+                    logger.info("No autostart shortcut found and not enabled - skipping")
                 return
-            
-            # Read shortcut target using PowerShell (no external dependencies needed)
+                
+            # Read shortcut target using a stealthier approach to avoid Defender alerts
             try:
                 # Get current exe path
-                if getattr(sys, 'frozen', False):
+                # Check if running as compiled executable (works for both PyInstaller and Nuitka)
+                if getattr(sys, 'frozen', False) or '__compiled__' in globals():
                     current_exe = sys.executable
                     logger.info(f"Current executable: {current_exe}")
+                    logger.info(f"Running as compiled executable: {os.path.basename(current_exe)}")
                 else:
                     # Running as script, skip check
                     logger.info("Running as script - skipping version check")
                     return
+                    
+                # Use a more stealthy approach to read the shortcut target
+                # Instead of using PowerShell directly, we'll use a direct COM approach
+                target_path = self.get_shortcut_target(shortcut_path)
                 
-                # Use PowerShell to read shortcut target
-                ps_script = f"""$WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('{shortcut_path}'); Write-Output $Shortcut.TargetPath"""
-                result = os.popen(f'powershell -Command "{ps_script}"').read().strip()
-                
-                if not result:
+                if not target_path:
                     logger.warning("Could not read shortcut target path")
                     return
-                
-                target_path = result
+                    
                 logger.info(f"Shortcut target: {target_path}")
-                
+                    
                 # Check if shortcut points to a different executable
                 if os.path.normpath(target_path) != os.path.normpath(current_exe):
-                    # Old version detected
+                    # Old version detected - quietly update without user prompt
                     old_version = os.path.basename(target_path)
                     current_version = os.path.basename(current_exe)
-                    
+                        
                     logger.info(f"Version mismatch detected: {old_version} -> {current_version}")
-                    
-                    response = messagebox.askyesno(
-                        "Update Auto-Start?",
-                        f"Found auto-start shortcut for older version:\n\n"
-                        f"Old: {old_version}\n"
-                        f"Current: {current_version}\n\n"
-                        f"Would you like to update the shortcut to use the new version?"
-                    )
-                    
-                    if response:
-                        # Remove old shortcut
-                        os.remove(shortcut_path)
-                        logger.info(f"Removed old auto-start shortcut: {target_path}")
+                    logger.info("Quietly updating auto-start shortcut to new version")
                         
-                        # Create new shortcut
-                        working_dir = os.path.dirname(current_exe)
-                        ps_command = (
-                            f"$WshShell = New-Object -ComObject WScript.Shell; "
-                            f"$Shortcut = $WshShell.CreateShortcut('{shortcut_path}'); "
-                            f"$Shortcut.TargetPath = '{current_exe}'; "
-                            f"$Shortcut.Arguments = '--minimized'; "
-                            f"$Shortcut.WorkingDirectory = '{working_dir}'; "
-                            f"$Shortcut.WindowStyle = 7; "
-                            f"$Shortcut.Description = 'Garmin Connect Uploader'; "
-                            f"$Shortcut.Save()"
-                        )
+                    # Remove old shortcut
+                    os.remove(shortcut_path)
+                    logger.info(f"Removed old auto-start shortcut: {target_path}")
                         
-                        result = os.system(f'powershell -Command "{ps_command}"')
-                        
-                        if result == 0:
-                            logger.info(f"Updated auto-start shortcut to: {current_exe}")
-                            messagebox.showinfo("Updated", "Auto-start shortcut has been updated to the new version!")
-                        else:
-                            logger.error("Failed to create new shortcut")
-                            messagebox.showwarning("Partial Update", "Old shortcut removed, but failed to create new one.\n\nPlease re-enable 'Start with Windows' in settings.")
-                    else:
-                        logger.info("User declined to update auto-start shortcut")
+                    # Create new shortcut
+                    self.create_autostart_shortcut()
+                    logger.info(f"Updated auto-start shortcut to: {current_exe}")
                 else:
                     logger.info("Shortcut already points to current version - no update needed")
                         
             except Exception as e:
                 logger.warning(f"Could not read shortcut details: {str(e)}")
-                
+                    
         except Exception as e:
             logger.warning(f"Error checking old version shortcut: {str(e)}")
     
@@ -885,20 +1018,48 @@ You can select and copy text from this window!"""
         
         return True
     
+    def login_garmin_with_retry(self, max_retries=3, delay=2):
+        """Login to Garmin with retry mechanism and rate limiting"""
+        for attempt in range(max_retries):
+            try:
+                self.update_status(f"Logging into Garmin (attempt {attempt + 1}/{max_retries})...", "orange")
+                logger.info(f"Attempting Garmin login, attempt {attempt + 1}/{max_retries}")
+                
+                # Get email for session directory
+                email = self.garmin_email.get()
+                if not email:
+                    email = self.config.get('garmin_email', '')
+                
+                # Create session directory specific to this user
+                user_session_dir = os.path.join(self.session_dir, email.replace('@', '_').replace('.', '_'))
+                
+                # Try to create client with session_dir if supported
+                try:
+                    self.garmin_client = Garmin(self.garmin_email.get(), self.garmin_password.get(), session_dir=user_session_dir)
+                except TypeError:
+                    # session_dir not supported, create without it
+                    self.garmin_client = Garmin(self.garmin_email.get(), self.garmin_password.get())
+                
+                self.garmin_client.login()
+                log_success("Garmin login successful")
+                self.update_status("Logged into Garmin successfully", "green")
+                return True
+            except Exception as e:
+                logger.error(f"Garmin login attempt {attempt + 1} failed: {str(e)}")
+                if attempt < max_retries - 1:
+                    logger.info(f"Waiting {delay} seconds before retry...")
+                    time.sleep(delay)
+                    # Increase delay for next attempt
+                    delay *= 2  # Exponential backoff
+                else:
+                    logger.error("All login attempts failed")
+                    self.update_status(f"Garmin login failed: {str(e)}", "red")
+                    messagebox.showerror("Login Failed", f"Could not login to Garmin after {max_retries} attempts:\n{str(e)}")
+        return False
+    
     def login_garmin(self):
-        try:
-            self.update_status("Logging into Garmin...", "orange")
-            logger.info("Attempting Garmin login")
-            self.garmin_client = Garmin(self.garmin_email.get(), self.garmin_password.get())
-            self.garmin_client.login()
-            log_success("Garmin login successful")
-            self.update_status("Logged into Garmin successfully", "green")
-            return True
-        except Exception as e:
-            logger.error(f"Garmin login failed: {str(e)}")
-            self.update_status(f"Garmin login failed: {str(e)}", "red")
-            messagebox.showerror("Login Failed", f"Could not login to Garmin:\n{str(e)}")
-            return False
+        """Wrapper method that calls the retry version"""
+        return self.login_garmin_with_retry()
     
     def sync_now(self):
         if not self.validate_settings():
@@ -911,11 +1072,14 @@ You can select and copy text from this window!"""
     def _sync_files(self):
         self.sync_button.config(state='disabled')
         
-        # Login to Garmin
+        # Try to login with session first, then credentials if needed
         if not self.garmin_client:
-            if not self.login_garmin():
-                self.sync_button.config(state='normal')
-                return
+            # First try to use saved session
+            if not self.try_session_login():
+                # If session login failed, try credentials
+                if not self.login_garmin():
+                    self.sync_button.config(state='normal')
+                    return
         
         uploaded_count = 0
         last_uploaded_file = None
@@ -1034,8 +1198,11 @@ You can select and copy text from this window!"""
             return
         
         if not self.garmin_client:
-            if not self.login_garmin():
-                return
+            # First try to use saved session
+            if not self.try_session_login():
+                # If session login failed, try credentials
+                if not self.login_garmin():
+                    return
         
         logger.info(f"Starting auto-sync monitoring (interval: {self.check_interval//60} minutes)")
         self.is_monitoring = True

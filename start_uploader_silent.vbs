@@ -1,3 +1,6 @@
 Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run "cmd /c ""cd /d e:\Coding\scripts\ConnectUploader && set PYTHONIOENCODING=utf-8 && .venv\Scripts\python.exe sript.py""", 0, False
+exePath = WScript.ScriptFullName
+exeDir = Left(exePath, InStrRev(exePath, "\\") - 1)
+WshShell.CurrentDirectory = exeDir
+WshShell.Run "GarminUploader-v1.0.2.exe", 0, False
 Set WshShell = Nothing
