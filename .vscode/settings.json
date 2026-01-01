@@ -37,6 +37,14 @@
         "wraplength",
         "yscrollcommand"
     ],
-    "python.defaultInterpreterPath": ".venv\\Scripts\\python.exe"
+    "python.defaultInterpreterPath": ".venv\\Scripts\\python.exe",
+    "cSpell.customDictionaries": {
+        "custom-dictionary-workspace": {
+            "name": "custom-dictionary-workspace",
+            "path": "${workspaceFolder:ConnectUploader}/.cspell/custom-dictionary-workspace.txt",
+            "addWords": true,
+            "scope": "workspace"
+        }
+    }
 }
   

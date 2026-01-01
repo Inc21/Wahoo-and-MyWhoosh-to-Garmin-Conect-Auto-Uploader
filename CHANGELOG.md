@@ -13,6 +13,29 @@ From **v1.0.1** onwards, the app includes a "Smart Migration" feature to handle 
 > [!IMPORTANT]  
 > Your settings and logs are safe as long as the new EXE is in the same location as the old one. You can safely delete the old version's EXE file once the shortcut has been updated.
 
+## [1.0.2] - 2026-01-01
+
+### Added (1.0.2)
+
+- Windows build now uses a standalone **Nuitka onefile** executable to reduce antivirus false positives (especially Windows Defender) while keeping everything self-contained.
+- Dedicated **uploads-only** log file `garmin_uploads.log` that records just successful upload events, with clear daily separators.
+- New **"View Uploads Log"** button in the About dialog to inspect upload history directly from the app.
+- More robust resource bundling for compiled builds so the main icon, app logo, developer logo, and GitHub logo all display correctly in the About window.
+
+### Fixed (1.0.2)
+
+- Improved handling of Garmin **session tokens** so that stale sessions are detected and recovered more reliably instead of silently failing uploads.
+- Fixed edge cases in Windows auto-start shortcut migration when upgrading between versions compiled with different toolchains.
+- Resolved layout issues in the About dialog where the Close button could be partially hidden on some DPI / scaling combinations.
+
+### Changed (1.0.2)
+
+- Logging now consists of:
+  - The main rotating log `garmin_uploader.log` (10MB, 3 backups), and
+  - A separate non-rotating upload log `garmin_uploads.log` for a clean history of uploaded files.
+- Logs are always written next to the running executable (for both script and compiled modes), making upgrades and troubleshooting simpler.
+- Simplified text in the About dialog – log file paths are now accessed via the built-in log viewers instead of being shown directly.
+
 ## [1.0.1] - 2025-12-29
 
 ### Added

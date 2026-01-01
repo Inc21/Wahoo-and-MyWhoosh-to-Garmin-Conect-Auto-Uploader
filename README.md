@@ -2,7 +2,7 @@
 
 Automatically upload workout activities from Wahoo and MyWhoosh to Garmin Connect.
 
-Version 1.0.1 | Windows Desktop Application
+Version 1.0.2 | Windows Desktop Application (Nuitka onefile build)
 
 ---
 
@@ -57,11 +57,11 @@ I built this originally as a personal Python script to solve my own manual uploa
 
 ### Step 1: Download
 
-1. Download `GarminUploader.exe` from the releases/dist folder
+1. Download `GarminUploader-v1.0.2.exe` from the releases/dist folder
 2. Place it anywhere you like (Desktop, Documents, etc.)
 3. Double-click to run
 
-**Note:** Windows may show a security warning ("Windows protected your PC") - click "More info" → "Run anyway"
+**Note:** The app is now built as a **single-file Nuitka executable** to reduce antivirus false positives (including Windows Defender). Windows may still show a generic security warning ("Windows protected your PC") – click "More info" → "Run anyway" if you trust the source.
 
 ---
 
@@ -179,18 +179,19 @@ Click **"Save Settings"** - this will:
 
 ## Files Created
 
-The app creates 2 files in the **same folder as the EXE**:
+The app creates files in the **same folder as the EXE**:
 
-1. **`uploader_config.json`** - Your settings (password is encrypted)
-2. **`garmin_uploader.log`** - Activity log with timestamps (auto-rotates at 10MB, keeps 3 backups)
+1. **`uploader_config.json`** – Your settings (password is encrypted)
+2. **`garmin_uploader.log`** – Main activity log with timestamps (auto-rotates at 10MB, keeps 3 backups)
+3. **`garmin_uploads.log`** – Dedicated uploads-only log that records successful uploads with daily separators (easier to review your upload history).
 
-**View the log:**
+**View the logs:**
 
 - Click **"ℹ️ About"** button
-- Click **"📄 View Log"** button
-- Opens in built-in viewer showing latest entries first
+- Click **"📄 View Log"** for the main log
+- Click **"📄 View Uploads Log"** for the uploads-only log (read-only viewer)
 
-**What's logged:**
+**What's logged (main log):**
 
 - App startup/shutdown
 - Garmin login attempts (success/failure)
@@ -201,9 +202,9 @@ The app creates 2 files in the **same folder as the EXE**:
 
 **Log retention:**
 
-- Automatically rotates when log reaches 10MB
+- `garmin_uploader.log` automatically rotates when it reaches 10MB
 - Keeps 3 backup files (~3 months of history)
-- Prevents disk space issues
+- `garmin_uploads.log` is a single running file with date markers so you can see what was uploaded each day
 
 ---
 

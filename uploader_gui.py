@@ -33,19 +33,40 @@ except ImportError:
 # Configuration file
 CONFIG_FILE = "uploader_config.json"
 
-# Get the correct path for bundled resources (PyInstaller)
-if getattr(sys, 'frozen', False):
-    # Running as compiled EXE
-    BASE_DIR = sys._MEIPASS
-    LOG_DIR = os.path.dirname(sys.executable)
-else:
-    # Running as script
-    BASE_DIR = os.path.dirname(__file__)
-    LOG_DIR = os.path.dirname(__file__)
+# Compute stable base/log directories so compiled builds reuse the same log in the exe folder
+def _get_base_and_log_dirs():
+    # Prefer the real executable/launcher location (handles Nuitka/PyInstaller onefile)
+    if getattr(sys, "frozen", False) or "__compiled__" in globals():
+        exe_path = os.path.abspath(sys.argv[0]) if sys.argv else os.path.abspath(sys.executable)
+        exe_dir = os.path.dirname(exe_path)
+        # BASE_DIR remains the embedded resource dir when available; fall back to exe dir
+        base_dir = getattr(sys, "_MEIPASS", exe_dir)
+        return base_dir, exe_dir
+    # Script mode
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    return script_dir, script_dir
 
-LOGO_PATH = os.path.join(BASE_DIR, "garmin-uploader-logo.PNG")
+BASE_DIR, LOG_DIR = _get_base_and_log_dirs()
+
+def find_resource(filename):
+    """Return first existing path for bundled/static assets."""
+    candidates = [
+        os.path.join(BASE_DIR, filename),
+        os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])) if sys.argv else "", filename),
+        os.path.join(os.path.dirname(os.path.abspath(sys.executable)) if hasattr(sys, "executable") else "", filename),
+    ]
+    for path in candidates:
+        if path and os.path.exists(path):
+            return path
+    return os.path.join(BASE_DIR, filename)
+
+LOGO_PATH = find_resource("garmin-uploader-logo.PNG")
+DEV_LOGO_PATH = find_resource("inc21.webp")
+GITHUB_LOGO_PATH = find_resource("github_logo.png")
 VERSION = "1.0.2"
 LOG_FILE = os.path.join(LOG_DIR, "garmin_uploader.log")
+# Upload log (single file; month separators written when month changes)
+UPLOAD_LOG_FILE = os.path.join(LOG_DIR, "garmin_uploads.log")
 MAX_LOG_SIZE_MB = 10  # Rotate log after 10MB
 
 # Setup logging with rotation (standard format without icons by default)
@@ -67,6 +88,15 @@ logging.basicConfig(
     handlers=[file_handler, console_handler]
 )
 logger = logging.getLogger(__name__)
+
+# Dedicated upload-only logger (separate file, no rotation; date markers in file)
+upload_logger = logging.getLogger("upload_log")
+upload_handler = logging.FileHandler(UPLOAD_LOG_FILE, encoding='utf-8')
+upload_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+upload_logger.setLevel(logging.INFO)
+# Avoid duplicate propagation to root; we want a clean uploads-only file
+upload_logger.propagate = False
+upload_logger.handlers = [upload_handler]
 
 # Custom log functions with icons for specific events
 def log_success(message):
@@ -173,7 +203,6 @@ class ConnectUploaderGUI:
         # Set window icon
         try:
             if os.path.exists(LOGO_PATH):
-                # Load PNG and set as window icon
                 logo_img = Image.open(LOGO_PATH)
                 logo_photo = ImageTk.PhotoImage(logo_img)
                 self.root.iconphoto(True, logo_photo)
@@ -188,10 +217,10 @@ class ConnectUploaderGUI:
         self.is_monitoring = False
         self.monitor_thread = None
         self.garmin_client = None
-        self.logo_image = None  # Keep reference to prevent garbage collection
         self.tray_icon = None
         self.check_interval = 300  # Default 5 minutes
         self.settings_changed = False  # Track if settings have been modified
+        self._upload_log_day = None  # Track day marker for uploads log
         
         self.create_widgets()
         self.load_settings()
@@ -813,6 +842,27 @@ You can select and copy text from this window!"""
         """Mark that settings have been modified"""
         self.settings_changed = True
     
+    def _maybe_log_upload_day_marker(self):
+        """Write a day separator to the uploads log when the day changes"""
+        now_day = datetime.datetime.now().strftime("%Y-%m-%d")
+        if self._upload_log_day != now_day:
+            self._upload_log_day = now_day
+            upload_logger.info(f"==== {now_day} ====")
+    
+    def _get_current_executable(self):
+        """
+        Return the best path to the currently running executable/binary.
+        Nuitka sets __compiled__ and uses sys.executable which can be python.exe
+        when launched via a renamed stub, so prefer argv[0] when available.
+        """
+        if getattr(sys, "frozen", False) or "__compiled__" in globals():
+            # Nuitka/PyInstaller
+            argv0 = os.path.abspath(sys.argv[0]) if sys.argv else None
+            if argv0 and os.path.splitext(argv0)[1].lower() == ".exe":
+                return argv0
+            return os.path.abspath(sys.executable)
+        return os.path.abspath(__file__)
+
     def get_shortcut_target(self, shortcut_path):
         """Get the target path of a Windows shortcut using COM objects"""
         if win32com:
@@ -839,10 +889,7 @@ You can select and copy text from this window!"""
         startup_folder = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
         shortcut_path = os.path.join(startup_folder, 'GarminUploader.lnk')
         
-        if getattr(sys, 'frozen', False) or '__compiled__' in globals():
-            exe_path = sys.executable
-        else:
-            exe_path = os.path.abspath(__file__)
+        exe_path = self._get_current_executable()
         
         working_dir = os.path.dirname(exe_path)
         
@@ -936,7 +983,7 @@ You can select and copy text from this window!"""
                 # Get current exe path
                 # Check if running as compiled executable (works for both PyInstaller and Nuitka)
                 if getattr(sys, 'frozen', False) or '__compiled__' in globals():
-                    current_exe = sys.executable
+                    current_exe = self._get_current_executable()
                     logger.info(f"Current executable: {current_exe}")
                     logger.info(f"Running as compiled executable: {os.path.basename(current_exe)}")
                 else:
@@ -956,20 +1003,29 @@ You can select and copy text from this window!"""
                     
                 # Check if shortcut points to a different executable
                 if os.path.normpath(target_path) != os.path.normpath(current_exe):
-                    # Old version detected - quietly update without user prompt
+                    # Old version detected - ask user before replacing
                     old_version = os.path.basename(target_path)
                     current_version = os.path.basename(current_exe)
                         
                     logger.info(f"Version mismatch detected: {old_version} -> {current_version}")
-                    logger.info("Quietly updating auto-start shortcut to new version")
-                        
-                    # Remove old shortcut
-                    os.remove(shortcut_path)
-                    logger.info(f"Removed old auto-start shortcut: {target_path}")
-                        
-                    # Create new shortcut
-                    self.create_autostart_shortcut()
-                    logger.info(f"Updated auto-start shortcut to: {current_exe}")
+                    
+                    # Ask user whether to replace the shortcut
+                    replace = messagebox.askyesno(
+                        "Update Startup Shortcut",
+                        f"A startup shortcut points to the old version:\n\n"
+                        f"Current shortcut: {old_version}\n"
+                        f"New version: {current_version}\n\n"
+                        f"Do you want to update the shortcut to the new version?"
+                    )
+                    
+                    if replace:
+                        logger.info("User approved shortcut update; updating auto-start shortcut")
+                        os.remove(shortcut_path)
+                        logger.info(f"Removed old auto-start shortcut: {target_path}")
+                        self.create_autostart_shortcut()
+                        logger.info(f"Updated auto-start shortcut to: {current_exe}")
+                    else:
+                        logger.info("User declined shortcut update; leaving existing shortcut in place")
                 else:
                     logger.info("Shortcut already points to current version - no update needed")
                         
@@ -1143,11 +1199,14 @@ You can select and copy text from this window!"""
                         log_info(f"Uploading file: {filename} from {source_name}")
                         
                         try:
+                            self._maybe_log_upload_day_marker()
                             self.garmin_client.upload_activity(file_path)
                             uploaded += 1
                             last_uploaded_file = filename
                             log_success(f"Successfully uploaded: {filename}")
+                            upload_logger.info(f"Uploaded: {filename}")
                             
+
                             # Move to uploaded folder
                             dest_path = os.path.join(uploaded_folder, filename)
                             try:
@@ -1375,23 +1434,34 @@ You can select and copy text from this window!"""
         """Show About dialog with developer info"""
         about_window = tk.Toplevel(self.root)
         about_window.title("About Garmin Connect Uploader")
-        
         # Apply DPI scaling
-        base_width, base_height = 480, 520
+        base_width, base_height = 500, 420
         width = int(base_width * (self.scaling / 1.33))
         height = int(base_height * (self.scaling / 1.33))
         about_window.geometry(f"{width}x{height}")
         about_window.resizable(False, False)
         
-        # Center the window
-        about_window.transient(self.root)
+        # Icon/logo at top
+        try:
+            if os.path.exists(LOGO_PATH):
+                logo_img = Image.open(LOGO_PATH)
+                logo_img.thumbnail((64, 64))
+                self.about_logo = ImageTk.PhotoImage(logo_img)
+        except Exception:
+            self.about_logo = None
         
-        # Content frame
-        content = ttk.Frame(about_window, padding="20")
+        # Container
+        content = ttk.Frame(about_window, padding=15)
         content.pack(fill=tk.BOTH, expand=True)
         
-        # App name and version
-        ttk.Label(content, text="Garmin Connect Uploader", font=('Arial', 16, 'bold')).pack(pady=(0, 5))
+        # Logo row (optional)
+        if self.about_logo:
+            logo_row = ttk.Frame(content)
+            logo_row.pack(pady=(0, 10))
+            ttk.Label(logo_row, image=self.about_logo).pack()
+        
+        # Title
+        ttk.Label(content, text="Garmin Connect Uploader", font=('Arial', 14, 'bold')).pack()
         ttk.Label(content, text=f"Version {VERSION}", font=('Arial', 10)).pack(pady=(0, 15))
         
         # Description
@@ -1402,8 +1472,8 @@ You can select and copy text from this window!"""
         ttk.Label(content, text="Developer", font=('Arial', 11, 'bold')).pack(pady=(10, 5))
         
         # Try to load developer logo
-        dev_logo_path = os.path.join(BASE_DIR, "inc21.webp")
-        if os.path.exists(dev_logo_path):
+        dev_logo_path = DEV_LOGO_PATH
+        if dev_logo_path and os.path.exists(dev_logo_path):
             try:
                 dev_logo_img = Image.open(dev_logo_path)
                 dev_logo_img.thumbnail((75, 75))  # Increased by 25% (60 -> 75)
@@ -1422,8 +1492,8 @@ You can select and copy text from this window!"""
         github_frame.pack(pady=5)
         
         # Try to load GitHub logo
-        github_logo_path = os.path.join(BASE_DIR, "github_logo.png")
-        if os.path.exists(github_logo_path):
+        github_logo_path = GITHUB_LOGO_PATH
+        if github_logo_path and os.path.exists(github_logo_path):
             try:
                 github_img = Image.open(github_logo_path)
                 github_img.thumbnail((96, 96))  # Much larger - 3x bigger
@@ -1467,13 +1537,20 @@ You can select and copy text from this window!"""
         # View Log File button
         log_btn = ttk.Button(btn_frame, text="📄 View Log", command=self.open_log_file)
         log_btn.pack(side=tk.LEFT, padx=5)
-        
-        # Log file location
-        ttk.Label(content, text=f"Log: {LOG_FILE}", font=('Arial', 7), foreground='gray', wraplength=420).pack(pady=(5, 15))
+
+        # View Uploads Log button
+        uploads_btn = ttk.Button(btn_frame, text="📄 View Uploads Log", command=self.open_upload_log)
+        uploads_btn.pack(side=tk.LEFT, padx=5)
         
         # Close button - full width for better visibility
         close_btn = ttk.Button(content, text="Close", command=about_window.destroy, width=15)
         close_btn.pack(pady=(5, 0))
+
+        # Prevent the dialog (and Close button) from being squashed
+        about_window.update_idletasks()
+        req_w = about_window.winfo_reqwidth()
+        req_h = about_window.winfo_reqheight()
+        about_window.minsize(req_w, req_h)
     
     def open_log_file(self):
         """Open the log file in a viewer window (opens at the end)"""
@@ -1602,6 +1679,52 @@ You can select and copy text from this window!"""
         except Exception as e:
             log_error(f"Failed to open log file: {str(e)}")
             messagebox.showerror("Error", f"Could not open log file:\n{str(e)}")
+
+    def open_upload_log(self):
+        """Open the upload-only log file (monthly)"""
+        try:
+            if not os.path.exists(UPLOAD_LOG_FILE):
+                messagebox.showinfo(
+                    "Uploads Log",
+                    f"Uploads log not found yet.\n\nIt will be created at:\n{UPLOAD_LOG_FILE}\n\nonce uploads occur."
+                )
+                return
+            
+            log_window = tk.Toplevel(self.root)
+            log_window.title("Garmin Uploader - Uploads Log")
+            
+            base_width, base_height = 800, 500
+            width = int(base_width * (self.scaling / 1.33))
+            height = int(base_height * (self.scaling / 1.33))
+            log_window.geometry(f"{width}x{height}")
+            
+            text_widget = scrolledtext.ScrolledText(
+                log_window,
+                wrap=tk.WORD,
+                font=('Courier New', 9)
+            )
+            text_widget.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+            
+            with open(UPLOAD_LOG_FILE, 'r', encoding='utf-8') as f:
+                log_content = f.read()
+                text_widget.insert(1.0, log_content)
+            text_widget.see(tk.END)
+            
+            def block_edit(event):
+                if event.state & 0x4:
+                    return
+                if event.keysym in ('Left', 'Right', 'Up', 'Down', 'Home', 'End', 'Prior', 'Next'):
+                    return
+                return "break"
+            text_widget.bind("<Key>", block_edit)
+            
+            close_btn = ttk.Button(log_window, text="Close", command=log_window.destroy)
+            close_btn.pack(pady=5)
+            
+            logger.info("Uploads log opened by user")
+        except Exception as e:
+            log_error(f"Failed to open uploads log file: {str(e)}")
+            messagebox.showerror("Error", f"Could not open uploads log file:\n{str(e)}")
 
 def main():
     logger.info(f"=" * 60)
